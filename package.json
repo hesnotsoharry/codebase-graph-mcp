@@ -1,7 +1,27 @@
 {
   "name": "@hesnotsoharry/codebase-graph-mcp",
   "version": "0.1.0",
-  "description": "Standalone MCP server exposing the Ouroboros codebase graph — consumable from any Claude Code session via npx",
+  "description": "Standalone MCP server for codebase graph queries: tree-sitter parsing, SQLite persistence, AST + call-graph traversal.",
+  "keywords": [
+    "mcp",
+    "claude",
+    "codebase",
+    "graph",
+    "ast",
+    "tree-sitter",
+    "code-analysis",
+    "cypher"
+  ],
+  "homepage": "https://github.com/hesnotsoharry/codebase-graph-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/hesnotsoharry/codebase-graph-mcp/issues"
+  },
+  "license": "MIT",
+  "author": "Cole Stacey",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hesnotsoharry/codebase-graph-mcp.git"
+  },
   "type": "module",
   "bin": {
     "codebase-graph-mcp": "./dist/index.js"
@@ -12,7 +32,9 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=20.0.0"

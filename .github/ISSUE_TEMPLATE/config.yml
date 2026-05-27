@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: README — Quickstart, Configuration, Troubleshooting
+    url: https://github.com/hesnotsoharry/codebase-graph-mcp#readme
+    about: Most setup and configuration questions are answered in the README. Check there first.

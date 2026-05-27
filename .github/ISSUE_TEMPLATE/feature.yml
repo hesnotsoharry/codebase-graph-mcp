@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a capability to add or extend.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Please be specific about the problem this solves — the package is solo-maintained and "nice to have" suggestions without a concrete use case rarely get prioritized.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: The concrete need that the feature would address.
+      placeholder: e.g. "When tracing call paths across a TypeScript project with `ReturnType<typeof X>` references, the graph misses those sites — I have to fall back to Grep, which loses topology-ranking."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API or behavior
+      description: How would the feature surface to consumers? Tool name, input schema, expected output shape.
+      placeholder: |
+        New tool: `find_typeof_references(symbolId, ...)` returning the same shape as `trace_call_path` but matching `typeof X` and `ReturnType<typeof X>` AST nodes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What did you try first, and why didn't it work?
+      placeholder: e.g. "Tried Grep for `typeof useConfig` — caught the sites but lost the structural ranking that `detect_changes` provides for call edges."
+
+  - type: textarea
+    id: scope-context
+    attributes:
+      label: Anything else to share?
+      description: Use case context, related issues, willingness to contribute, etc.

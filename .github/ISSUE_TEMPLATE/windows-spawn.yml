@@ -1,0 +1,91 @@
+name: Windows registration failure
+description: Claude Code shows `✗ Failed to connect`, `ENOENT`, or similar after registering the MCP server on Windows.
+title: "[Windows] "
+labels: ["bug", "windows", "registration"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Windows has a known issue with how `npx.cmd` is resolved by `spawn` (CVE-2024-27980 PATHEXT regression). The Windows-canonical workaround is to register via `node <absolute-path>` instead of `npx -y`. This template prompts for the diagnostics needed to confirm whether you're hitting that class of issue or a different one.
+
+  - type: textarea
+    id: registration-command
+    attributes:
+      label: Registration command you ran
+      description: Exact `claude mcp add ...` command.
+      placeholder: |
+        claude mcp add --scope user codebase-graph-mcp npx -y @hesnotsoharry/codebase-graph-mcp
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: mcp-list-output
+    attributes:
+      label: Output of `claude mcp list`
+      description: Full output — especially the status indicator (`✓ Connected` vs `✗ Failed to connect`) and any error text.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: error-message
+    attributes:
+      label: Error message (if any)
+      description: Full stderr output, error text, or stack trace.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version
+      description: Output of `node --version`.
+      placeholder: "v20.18.0"
+    validations:
+      required: true
+
+  - type: input
+    id: node-install-location
+    attributes:
+      label: Where is Node installed?
+      description: Output of `where node` (Windows) — both the path and how Node was installed.
+      placeholder: e.g. "C:\\Program Files\\nodejs\\node.exe — installed via official Node.js Windows installer (.msi)" or "via nvm-windows" or "via volta"
+    validations:
+      required: true
+
+  - type: input
+    id: package-install
+    attributes:
+      label: How did you install the package?
+      description: Local `npx`, global `npm install -g`, or other?
+      placeholder: "npm install -g @hesnotsoharry/codebase-graph-mcp"
+    validations:
+      required: true
+
+  - type: input
+    id: package-path
+    attributes:
+      label: If installed globally, output of `where codebase-graph-mcp`
+      description: The shim or `.cmd` path Windows resolved for the binary.
+      placeholder: "C:\\Users\\YOU\\AppData\\Roaming\\npm\\codebase-graph-mcp.cmd"
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+
+        ### Likely fix to try first
+
+        If you registered via `npx -y` and `claude mcp list` shows `✗ Failed to connect`, try the Windows-canonical pattern instead:
+
+        ```powershell
+        # First, ensure the package is installed globally
+        npm install -g @hesnotsoharry/codebase-graph-mcp
+
+        # Then register via absolute node path to the published main entry
+        claude mcp add --scope user codebase-graph-mcp node "$(npm root -g)\@hesnotsoharry\codebase-graph-mcp\dist\index.js"
+        ```
+
+        Reason: Node's `spawn` API on Windows has trouble locating `.cmd` shims like `npx.cmd` without the `shell: true` option, and Claude Code's MCP runner doesn't currently pass `shell: true`. Using `node <abs-path>` bypasses the shim resolution entirely.

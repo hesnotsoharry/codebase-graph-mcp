@@ -249,10 +249,10 @@ describe('GraphStore (SQLite)', () => {
     });
   });
 
-  describe('creates .ouroboros directory', () => {
+  describe('creates .codebase-graph directory', () => {
     it('graph.db is created on disk', () => {
       store.addNode(makeNode('a'));
-      const dbPath = path.join(tmpDir, '.ouroboros', 'graph.db');
+      const dbPath = path.join(tmpDir, '.codebase-graph', 'graph.db');
       // eslint-disable-next-line security/detect-non-literal-fs-filename -- test-controlled tmpDir path
       expect(fs.existsSync(dbPath)).toBe(true);
     });

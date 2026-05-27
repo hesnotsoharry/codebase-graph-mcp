@@ -188,7 +188,9 @@ export class GraphStore implements IGraphStore {
   private txRemoveNode: ReturnType<Database['transaction']>;
 
   constructor(projectRoot: string) {
-    const dbPath = path.join(projectRoot, '.ouroboros', 'graph.db');
+    // TODO: remove — dead path in standalone; GraphStore is not reachable from the
+    // standalone MCP entry point (index.ts uses GraphDatabase via serverBootstrap.ts).
+    const dbPath = path.join(projectRoot, '.codebase-graph', 'graph.db');
     this.db = openDatabase(dbPath);
     this.ensureSchema();
     this.stmts = {

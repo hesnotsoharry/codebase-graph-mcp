@@ -51,10 +51,100 @@ export const LAZY_INIT_BYPASS_TOOLS = new Set([
 
 // ── DB path derivation ────────────────────────────────────────────────────────
 
-/** Derives a stable DB path for `rootPath` under ~/.ouroboros-graph/<hash8>/. */
+/**
+ * Silent auto-migration helper: if the legacy `~/.ouroboros-graph/` directory
+ * exists, moves it (or its subdirectories) to `~/.codebase-graph/` so that
+ * existing 0.1.0 graph data survives a 0.2.0 upgrade without a full reindex.
+ *
+ * Rules:
+ *   - OLD-ONLY: rename the root dir atomically (fs.renameSync). No data loss.
+ *   - BOTH EXIST: walk old subdirs; move any that are absent in new; warn for
+ *     collisions — leaves both untouched so the user can clean up manually.
+ *   - NEW-ONLY or NEITHER: no-op.
+ *
+ * Uses only fs.renameSync — never fs.rmSync or fs.unlinkSync.
+ */
+function migrateOuroborosPath(home: string): void {
+  const oldRoot = path.join(home, '.ouroboros-graph');
+  const newRoot = path.join(home, '.codebase-graph');
+
+  // Neither or new-only: nothing to do.
+  if (!fs.existsSync(oldRoot)) return;
+
+  try {
+    // OLD-ONLY fast path: whole-tree rename if new doesn't exist.
+    if (!fs.existsSync(newRoot)) {
+      try {
+        fs.renameSync(oldRoot, newRoot);
+        console.error(
+          `[trace:graph-mcp.storage-migrate] moved ${oldRoot} -> ${newRoot}`,
+        );
+        return;
+      } catch (err) {
+        // Whole-tree rename failed (likely EPERM from open file handles in subdirs).
+        // Fall through to subdir-level migration: create newRoot, migrate subdirs that succeed,
+        // leave the rest where they are.
+        const errCode = (err as NodeJS.ErrnoException).code ?? (err as Error).message;
+        console.error(
+          `[trace:graph-mcp.storage-migrate] whole-tree rename failed (${errCode}); ` +
+            `falling back to subdir-by-subdir migration`,
+        );
+        fs.mkdirSync(newRoot, { recursive: true });
+      }
+    }
+
+    // Subdir-level migration: walk oldRoot, move each subdir if it doesn't collide in newRoot.
+    // Per-subdir try/catch so one failure doesn't block others.
+    const oldEntries = fs.readdirSync(oldRoot, { withFileTypes: true });
+    const collisions: string[] = [];
+    const failed: string[] = [];
+    for (const entry of oldEntries) {
+      if (!entry.isDirectory()) continue;
+      const oldSub = path.join(oldRoot, entry.name);
+      const newSub = path.join(newRoot, entry.name);
+      if (fs.existsSync(newSub)) {
+        collisions.push(entry.name);
+        // Non-destructive: leave both — user resolves
+        continue;
+      }
+      try {
+        fs.renameSync(oldSub, newSub);
+      } catch (err) {
+        const errCode = (err as NodeJS.ErrnoException).code ?? (err as Error).message;
+        failed.push(`${entry.name} (${errCode})`);
+      }
+    }
+
+    if (collisions.length > 0) {
+      console.error(
+        `[trace:graph-mcp.storage-migrate] warning: ${collisions.length} hash dir(s) exist in BOTH ` +
+          `${oldRoot} AND ${newRoot}: ${collisions.join(', ')}. Using new path. Old data preserved at ` +
+          `${oldRoot} — delete manually after confirming new graph is intact.`,
+      );
+    }
+    if (failed.length > 0) {
+      console.error(
+        `[trace:graph-mcp.storage-migrate] warning: ${failed.length} hash dir(s) could not be migrated ` +
+          `from ${oldRoot}: ${failed.join(', ')}. Likely cause: a file inside is in use by another ` +
+          `process. Server will continue with the new path; old data is preserved at the old path.`,
+      );
+    }
+  } catch (err) {
+    // Top-level safety net: if anything else goes wrong (readdir failure, mkdir failure, etc.),
+    // log and continue. Migration is best-effort — server MUST start even if it fails entirely.
+    const errCode = (err as NodeJS.ErrnoException).code ?? (err as Error).message;
+    console.error(
+      `[trace:graph-mcp.storage-migrate] migration aborted (${errCode}); ` +
+        `server continuing with new path. Old data preserved at ${oldRoot}.`,
+    );
+  }
+}
+
+/** Derives a stable DB path for `rootPath` under ~/.codebase-graph/<hash8>/. */
 export function buildDbPath(rootPath: string): string {
+  migrateOuroborosPath(os.homedir());
   const hash = crypto.createHash('sha256').update(rootPath).digest('hex').slice(0, 8);
-  const dir = path.join(os.homedir(), '.ouroboros-graph', hash);
+  const dir = path.join(os.homedir(), '.codebase-graph', hash);
   fs.mkdirSync(dir, { recursive: true });
   return path.join(dir, 'graph.db');
 }

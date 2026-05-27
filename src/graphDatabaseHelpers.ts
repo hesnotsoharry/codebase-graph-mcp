@@ -28,7 +28,7 @@ export { SCHEMA_SQL } from './graphDatabaseSchema';
 // This function is removed; use the `dbPath` constructor parameter on GraphDatabase
 // (or pass the path directly to openDatabase). The caller (MCP entry point) derives
 // the path from the project root, e.g.:
-//   path.join(os.homedir(), '.ouroboros-graph', hash(rootPath).slice(0, 8), 'graph.db')
+//   path.join(os.homedir(), '.codebase-graph', hash(rootPath).slice(0, 8), 'graph.db')
 
 // ─── Prepared Statement preparation ──────────────────────────────────────────
 

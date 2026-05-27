@@ -134,10 +134,10 @@ The server detects the project root from its working directory at startup. **An 
 Graph data is persisted at:
 
 ```
-~/.ouroboros-graph/<project-hash>/graph.db
+~/.codebase-graph/<project-hash>/graph.db
 ```
 
-This storage path is scheduled to rename to a neutral location in v0.2.0.
+If you have an existing `~/.ouroboros-graph/` directory from v0.1.0, the server migrates it automatically on the first run of v0.2.0 — no manual steps needed.
 
 ### Incremental indexing
 
@@ -173,7 +173,7 @@ The server did not start successfully. Check `claude mcp list` — if the status
 Common causes:
 - Wrong path to `dist/index.js` (verify the file exists at the registered path)
 - Node version below 20 (`node --version` must be `>= 20.0.0`)
-- Permission denied on the database directory (`~/.ouroboros-graph/` must be writable)
+- Permission denied on the database directory (`~/.codebase-graph/` must be writable)
 
 ### Node version mismatch
 

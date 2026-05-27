@@ -34,7 +34,7 @@ import path from 'path';
 
 /** Default DB path for the standalone package (no Electron dependency). */
 function defaultDbPath(): string {
-  return path.join(os.homedir(), '.ouroboros-graph', 'graph.db');
+  return path.join(os.homedir(), '.codebase-graph', 'graph.db');
 }
 import { migrateToV1, migrateToV2 } from './graphDatabaseMigrations';
 import { SCHEMA_VERSION } from './graphDatabaseSchema';

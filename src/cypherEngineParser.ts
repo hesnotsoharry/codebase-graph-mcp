@@ -33,7 +33,7 @@ export function assertNoUnsupportedClauses(query: string): void {
   const stripped = upper.replace(/(?:STARTS|ENDS)\s+WITH/g, '__OP__');
   if (/(?:^|\s)WITH\s/.test(stripped)) {
     throw new Error(
-      `Cypher feature not supported by Ouroboros mini-engine: WITH (pipeline operator). ` +
+      `Cypher feature not supported by codebase-graph mini-engine: WITH (pipeline operator). ` +
         SUPPORTED_FEATURES_HINT,
     );
   }

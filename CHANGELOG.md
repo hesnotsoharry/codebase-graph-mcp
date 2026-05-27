@@ -8,6 +8,7 @@ All notable changes to this project are documented here. Format follows [Keep a 
 - Repository graduated to a dedicated public home at <https://github.com/hesnotsoharry/codebase-graph-mcp>. Previously, the source had no public GitHub home — only the npm artifact existed for consumers.
 - README rewritten to reflect v0.1.0 reality (the previous README documented an unrelated monorepo path layout and a "Phase 1 walking skeleton" tool surface containing only `ping`, when the package actually ships 15 tools).
 - `package.json` metadata extended: `repository.url`, `bugs.url`, `homepage`, `keywords`. Description fixed to no longer reference "Ouroboros" — the package is standalone and that name no longer applies.
+- **Storage path renamed** from `~/.ouroboros-graph/<hash>/graph.db` to `~/.codebase-graph/<hash>/graph.db`. A silent auto-migration helper runs on every `buildDbPath()` call: if `~/.ouroboros-graph/` exists and `~/.codebase-graph/` does not, the directory is moved atomically (`fs.renameSync`). If both exist, non-colliding hash subdirectories are migrated individually; colliding subdirectories are left untouched and a warning is emitted to stderr so the user can clean up manually. No data is deleted in any scenario. Upgrading from 0.1.0 is zero-friction.
 
 ### Added
 - `LICENSE` (MIT).

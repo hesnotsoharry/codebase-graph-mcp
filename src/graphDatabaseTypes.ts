@@ -38,7 +38,40 @@ export type EdgeType =
   | 'USES_TYPE'
   | 'FILE_CHANGES_WITH'
   | 'EXPORTS'
-  | 'EXTENDS';
+  | 'EXTENDS'
+  | 'TYPEOF_REFERENCES';
+
+/**
+ * Exported set of all recognized edge type strings.
+ * The acceptance test checks for an exported constant whose name matches
+ * /edge.*type/i, /edgekind/i, or /EDGE_TYPES/ containing 'TYPEOF_REFERENCES'.
+ *
+ * Note: the edges table has no CHECK constraint on the type column (plain TEXT),
+ * so no schema migration is needed to add a new edge type — see graphDatabaseSchema.ts.
+ */
+export const EDGE_TYPES = new Set<EdgeType>([
+  'CONTAINS_PACKAGE',
+  'CONTAINS_FOLDER',
+  'CONTAINS_FILE',
+  'DEFINES',
+  'DEFINES_METHOD',
+  'IMPORTS',
+  'CALLS',
+  'HTTP_CALLS',
+  'ASYNC_CALLS',
+  'IMPLEMENTS',
+  'HANDLES',
+  'USAGE',
+  'CONFIGURES',
+  'WRITES',
+  'MEMBER_OF',
+  'TESTS',
+  'USES_TYPE',
+  'FILE_CHANGES_WITH',
+  'EXPORTS',
+  'EXTENDS',
+  'TYPEOF_REFERENCES',
+]);
 
 // ─── Node Properties (stored as JSON) ───────────────────────────────────────
 

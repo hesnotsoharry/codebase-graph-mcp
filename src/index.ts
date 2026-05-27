@@ -1,6 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { z } from 'zod';
 
 import { buildContext, buildDbPath, registerGraphTools } from './serverBootstrap.js'; // .js needed for Node ESM
 
@@ -22,19 +21,10 @@ const server = new McpServer({
   version: '0.1.0',
 });
 
-// Health-check tool — must stay for walking-skeleton smoke test.
-server.registerTool(
-  'ping',
-  {
-    description: 'Health-check tool — returns pong',
-    inputSchema: z.object({}),
-  },
-  async () => {
-    return {
-      content: [{ type: 'text' as const, text: 'pong' }],
-    };
-  },
-);
+// NOTE: ping health-check tool is now registered via createGraphMcpTools() inside
+// registerGraphTools() — see mcpToolHandlers.ts buildTypeofAndHealthTools(). Removed
+// the standalone registration here (M-28 Phase 3) to avoid duplicate registration
+// and to surface ping in the McpToolDefinition list (needed by acceptance test D).
 
 // ── Bootstrap and connect ─────────────────────────────────────────────────────
 

@@ -27,6 +27,7 @@ import { GraphDatabase } from './graphDatabase';
 import { callResolutionPass } from './indexingPipelineCallResolution';
 import { discoverFiles, resolveIncrementalFiles } from './indexingPipelineIncremental';
 import { definitionPass, importPass, parsePass, structurePass } from './indexingPipelinePasses';
+import { typeofResolutionPass } from './indexingPipelineTypeofResolution';
 import { buildIndexResult, buildNoOpResult } from './indexingPipelineResult';
 import type {
   DiscoveredFile,
@@ -125,6 +126,14 @@ export class IndexingPipeline {
     await this.withTiming(
       'calls',
       () => this.runChunkedPass('calls', () => callResolutionPass(this.db, projectName, indexedFiles, { chunkSize: CHUNK }), report, errorCounter),
+      timings,
+    );
+    // Pass 5.5 — typeof resolution: emit TYPEOF_REFERENCES edges for
+    // `typeof X`, `ReturnType<typeof X>`, and the other 4 ADR D3 patterns.
+    // Runs AFTER call resolution so the symbol index is populated.
+    await this.withTiming(
+      'typeof_resolution',
+      () => this.runChunkedPass('typeof_resolution', () => typeofResolutionPass(this.db, projectName, projectRoot, indexedFiles), report, errorCounter),
       timings,
     );
   }

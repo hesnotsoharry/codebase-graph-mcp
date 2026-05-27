@@ -1,10 +1,10 @@
 /**
  * mcpToolHandlers.ts -- MCP tool definitions for the codebase knowledge graph.
  *
- * Exports a `createGraphMcpTools(context)` function that returns 14 McpToolDefinition
- * objects replicating the codebase-memory-mcp API. Each handler returns formatted
- * plain text (not JSON), includes qualified names and file:line locations, and
- * truncates output at ~8000 chars.
+ * Exports a `createGraphMcpTools(context)` function that returns 15 McpToolDefinition
+ * objects (14 graph tools + ping health-check). M-28 Phase 3 adds find_typeof_references
+ * → 16 total. Each handler returns formatted plain text (not JSON), includes qualified
+ * names and file:line locations, and truncates output at ~8000 chars.
  *
  * NOTE: file is over the 300-line max-lines limit. The TOOL_SCHEMAS constant
  * (lines ~36-200) is mostly inline JSON-schema declarations; splitting them
@@ -34,6 +34,7 @@ import {
   handleSearchGraph,
   handleTraceCallPath,
 } from './mcpToolHandlerHelpers';
+import { handleFindTypeofReferences } from './mcpToolHandlerTypeof';
 
 export type { GraphToolContext };
 
@@ -188,6 +189,25 @@ const TOOL_SCHEMAS = {
       },
     },
     required: ['traces'],
+  },
+  find_typeof_references: {
+    type: 'object',
+    properties: {
+      symbol_name: {
+        type: 'string',
+        description: 'Symbol IDENTIFIER to find typeof references to (e.g. "useConfig", "MyClass").',
+      },
+      project_name: {
+        type: 'string',
+        description: 'Project name to scope the search. Defaults to the current workspace project.',
+      },
+    },
+    required: ['symbol_name'],
+  },
+  ping: {
+    type: 'object',
+    properties: {},
+    required: [],
   },
 } as const;
 
@@ -346,6 +366,25 @@ function buildCypherAndAdrTools(context: GraphToolContext): McpToolDefinition[] 
     },
   ];
 }
+function buildTypeofAndHealthTools(context: GraphToolContext): McpToolDefinition[] {
+  return [
+    {
+      name: 'find_typeof_references',
+      description:
+        'Find all `typeof X` and related type-level references to a symbol. Captures typeof, ReturnType<typeof>, Parameters<typeof>, InstanceType<typeof>, Awaited<ReturnType<typeof>>, and keyof typeof patterns. Use this for refactor-planning when CALLS edges alone miss type-level consumers of a function or class.',
+      inputSchema: TOOL_SCHEMAS.find_typeof_references,
+      handler: async (a: Record<string, unknown>) =>
+        wrapText(handleFindTypeofReferences(context, a)),
+    },
+    {
+      name: 'ping',
+      description: 'Health-check tool — returns pong. Use to verify the server is running.',
+      inputSchema: TOOL_SCHEMAS.ping,
+      handler: async () => textResult('pong'),
+    },
+  ];
+}
+
 export function createGraphMcpTools(context: GraphToolContext): McpToolDefinition[] {
   return [
     ...buildLifecycleTools(context),
@@ -353,5 +392,6 @@ export function createGraphMcpTools(context: GraphToolContext): McpToolDefinitio
     ...buildSearchTools(context),
     ...buildTraceAndChangeTools(context),
     ...buildCypherAndAdrTools(context),
+    ...buildTypeofAndHealthTools(context),
   ];
 }

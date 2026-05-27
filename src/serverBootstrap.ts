@@ -38,6 +38,14 @@ export function buildDbPath(rootPath: string): string {
  * Wraps an IndexingPipeline so the TreeSitterParser is lazily initialized
  * (via parser.init()) on the first index() call. The parser requires async
  * WASM initialization; we can't await at construction time in a sync factory.
+ *
+ * @remarks
+ * The pipeline is constructed lazily because TreeSitterParser requires
+ * `parser.init()` (an async WASM load) before any parsing can happen.
+ * `parser.init()` cannot be called synchronously at module-load time —
+ * it must be awaited inside the first `index()` call. The lazy wrapper
+ * captures this constraint at the boundary so callers can construct
+ * the pipeline synchronously and pay the WASM load cost on first use.
  */
 function makeLazyPipeline(
   db: GraphDatabase,

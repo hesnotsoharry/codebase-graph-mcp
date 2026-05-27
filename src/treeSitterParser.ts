@@ -42,8 +42,13 @@ import type {
   ParsedFileResult,
 } from './treeSitterTypes';
 
-// ESM-compatible require — works in both Node CJS contexts (Vitest, Electron-vite)
-// and standalone Node ESM contexts (the standalone MCP server running from dist/).
+// ESM-compatible require: bare `require` is undefined in ESM modules
+// (`"type": "module"` in package.json). `createRequire(import.meta.url)`
+// reconstructs a CommonJS-style require relative to THIS file's URL.
+// Used to call `_require.resolve(...)` for locating WASM grammar files
+// at runtime. Caveat: `_require.resolve` resolves relative to the
+// entrypoint module URL, not the call-site file path — keep that in
+// mind if this code moves between files.
 const _require = createRequire(import.meta.url);
 
 /** Maximum length for extracted signatures before truncation. */

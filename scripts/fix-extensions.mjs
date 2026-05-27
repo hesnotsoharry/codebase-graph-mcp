@@ -1,14 +1,11 @@
 #!/usr/bin/env node
 /**
- * fix-extensions.mjs — Post-build script that adds .js extensions to all
- * extensionless relative imports in the dist/ directory.
- *
- * Background: TypeScript with "module": "ESNext" emits import statements
- * exactly as written in source (no extension added). Node.js ESM requires
- * explicit .js extensions for relative imports. This script bridges the gap
- * so `node dist/index.js` works correctly as a standalone MCP server.
- *
- * Run via: node scripts/fix-extensions.mjs
+ * Post-processes tsc output to add `.js` extensions to all relative
+ * imports in dist/. TypeScript with `"module": "ESNext"` emits
+ * extensionless imports (e.g., `from './foo'`), but Node v20+ ESM
+ * (`"type": "module"` in package.json) requires explicit extensions
+ * (`from './foo.js'`) for relative-path resolution. Removing this
+ * script breaks `node dist/index.js` immediately.
  */
 
 import fs from 'node:fs';

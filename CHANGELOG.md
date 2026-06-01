@@ -6,6 +6,21 @@ All notable changes to this project are documented here. Format follows [Keep a 
 
 (No changes yet.)
 
+## [0.3.0] - 2026-06-01
+
+### Added
+- **Edge resolution provenance (`resolution_method`).** Every edge written by a resolution pass now records *how* it was resolved in `props.resolution_method`, so consumers can weight a precise edge against a heuristic one. Values: `import_resolved` / `same_file` / `name_unique` / `new_expression` (CALLS/ASYNC_CALLS, set per-branch in the call resolver), `typeof_regex` (TYPEOF_REFERENCES), `url_literal` / `url_template` / `heuristic_name` (HTTP_CALLS), and `compiler_api` (reserved for a future type-aware tier). No DB migration — `props` is an existing JSON blob. `ResolutionMethod` is exported from `graphDatabaseTypes.ts`.
+- **Real HTTP URL + method matching for `HTTP_CALLS` edges.** The parser now captures the first string/template-literal call argument and a `fetch` options-object `method` (`ExtractedCall.firstArgValue` / `optionsMethod`). `httpLinkPass` matches the *actual* called URL against route definitions by normalized path segments (`:param`, `{param}`, and `${…}` treated as wildcards) plus HTTP-method agreement: exact literal path+method → confidence 0.95 (`url_literal`); template/param match → 0.8 (`url_template`); a URL that cannot be statically resolved falls back to the caller-name heuristic at ≤ 0.5 (`heuristic_name`) and is never dropped. The real method is stored on the edge as `http_method` — no more hardcoded `fetch` → GET. This makes the canonical mismatch (`fetch('/api/v2/tasks')` vs route `/api/tasks`) detectable as an orphan.
+- **Cypher engine: `WITH` pipe, negated-existence patterns, and pagination.** The query-subset engine now supports a single-stage `WITH` alias passthrough (`MATCH (n) WITH n WHERE … RETURN`), negated existence patterns (`WHERE NOT ()-[:T]->(n)`) compiled to a correlated `NOT EXISTS` subquery — which makes dead-export / "route with no inbound `HTTP_CALLS`" queries expressible rather than advisory — and `limit`/`offset` pagination on `query_graph`. `get_graph_schema`'s `SUPPORTED_CYPHER_FEATURES` advertises the new surface.
+
+### Changed
+- **`query_graph` no longer silently truncates at 200 rows.** Responses now carry an explicit `truncated` flag (true whenever more rows exist beyond the returned page — including the default 200-row cap), alongside new `limit`/`offset` parameters for paging. This removes the false "no results" confidence a silent cap could create. Callers that pass no `limit`/`offset` keep working via the 200-row default.
+- **`HTTP_CALLS` edges now emit a single best-matching route instead of fanning out.** The previous pass emitted an edge to *every* route scoring ≥ 0.3; it now emits one edge to the single best match (URL-based when statically resolvable, otherwise a single capped heuristic edge). **Behavior change on reindex:** some previously-emitted (false) `HTTP_CALLS` edges disappear — graphs will show fewer, more accurate HTTP edges after upgrading.
+
+### Known limitations (tracked as follow-ups)
+- `WITH` is an alias passthrough, not true projection narrowing (`WITH a RETURN b` behaves as `WITH a, b`); only the documented passthrough shape is advertised.
+- Variable-length-path (`*1..N`) queries silently ignore `NOT EXISTS` conditions in `WHERE`, and `OFFSET` over recursive-CTE results has no cross-page ordering guarantee without an explicit `ORDER BY`.
+
 ## [0.2.2] - 2026-06-01
 
 ### Added

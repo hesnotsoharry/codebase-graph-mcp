@@ -192,10 +192,11 @@ export function extractPythonPlainImport(node: Node): ExtractedImport | null {
 
 // ─── Call extraction + route extraction (re-exported from companion file) ────
 
-export type { CallNodeResult, RouteCandidateInfo } from './treeSitterParserCalls';
+export type { CallNodeResult, HttpCallArgs, RouteCandidateInfo } from './treeSitterParserCalls';
 export {
   extractCallNodeInfo,
   extractHandlerName,
+  extractHttpCallArgs,
   extractRouteCandidate,
 } from './treeSitterParserCalls';
 

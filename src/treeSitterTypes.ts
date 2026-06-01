@@ -54,6 +54,9 @@ export interface ExtractedCall {
   isAsync: boolean; // await or .then()
   arguments: number; // Argument count (for disambiguation)
   isNewExpression: boolean; // true when call site is `new Foo()` — used to prefer Class over Function in resolver
+  // Wave 1 Phase 1 — HTTP URL extraction (populated by treeSitterParser.ts during AST walk)
+  firstArgValue?: string; // Raw text of the first string/template-literal argument, if statically extractable
+  optionsMethod?: string; // Value of the `method` property when the 2nd argument is an object literal (e.g. fetch options)
 }
 
 export interface ExtractedRoute {

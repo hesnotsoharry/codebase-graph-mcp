@@ -28,7 +28,7 @@ export function xyzPass(db: GraphDatabase, projectName: string, projectRoot?: st
 | Edge | Created by | Meaning |
 |------|-----------|---------|
 | `FILE_CHANGES_WITH` | `gitCoChangePass` | Two files frequently co-committed (props: `{ count }`) |
-| `HTTP_CALLS` | `httpLinkPass` | Function calls an HTTP endpoint (props: `{ confidence, method }`) |
+| `HTTP_CALLS` | `httpLinkPass` | Function calls an HTTP endpoint (props: `{ confidence, http_method, resolution_method }`) |
 | `TESTS` | `testDetectPass` | Test function exercises a production function |
 
 ## `resolution_method` provenance (Wave 1, Phase 0)
@@ -42,9 +42,9 @@ Every edge written by a resolution pass carries `props.resolution_method` — a 
 | `name_unique` | `CALLS` / `ASYNC_CALLS` | Callee name is unique project-wide (single candidate) |
 | `new_expression` | `CALLS` / `ASYNC_CALLS` | `new X()` constructor — Class node preferred among candidates |
 | `typeof_regex` | `TYPEOF_REFERENCES` | Detected by regex scan of type-position `typeof` |
-| `url_literal` | `HTTP_CALLS` | Static literal URL path + method match *(Phase 1, not yet written)* |
-| `url_template` | `HTTP_CALLS` | Template-literal/param URL path + method match *(Phase 1, not yet written)* |
-| `heuristic_name` | `HTTP_CALLS` | Fell back to caller-name / route-path string heuristic *(Phase 1, not yet written)* |
+| `url_literal` | `HTTP_CALLS` | Static literal URL path + method match (exact) → confidence 0.95 |
+| `url_template` | `HTTP_CALLS` | Template-literal/param URL path + method match → confidence 0.8 |
+| `heuristic_name` | `HTTP_CALLS` | Fell back to caller-name / route-path string heuristic (no static URL) → confidence ≤ 0.5 |
 | `compiler_api` | any | Reserved for Wave 2 ts-morph type-checked resolution — not yet assigned |
 
 Querying example: `WHERE e.props ->> 'resolution_method' = 'import_resolved'` (SQLite `json_extract` syntax) or Cypher `WHERE e.resolution_method = 'import_resolved'` once the Cypher engine supports props dot-access.

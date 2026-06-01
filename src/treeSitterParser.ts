@@ -28,6 +28,7 @@ import {
   extractArrowDeclarator,
   extractCallNodeInfo,
   extractHandlerName,
+  extractHttpCallArgs,
   extractRouteCandidate,
   extractTopLevelNames,
 } from './treeSitterParserSupport';
@@ -291,6 +292,7 @@ export class TreeSitterParser {
         node.childForFieldName('arguments') ??
         node.namedChildren.find((c) => c.type === 'arguments' || c.type === 'argument_list');
       const argCount = argsNode?.namedChildCount ?? 0;
+      const { firstArgValue, optionsMethod } = extractHttpCallArgs(argsNode);
 
       calls.push({
         calleeName: info.calleeName,
@@ -299,6 +301,8 @@ export class TreeSitterParser {
         isAsync: info.isAsync,
         arguments: argCount,
         isNewExpression: node.type === 'new_expression',
+        firstArgValue,
+        optionsMethod,
       });
     });
 

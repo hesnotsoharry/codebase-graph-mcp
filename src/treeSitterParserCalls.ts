@@ -178,3 +178,93 @@ export function extractHandlerName(
   }
   return null;
 }
+
+// ─── HTTP call argument extraction (Wave 1 Phase 1) ──────────────────────────
+
+export interface HttpCallArgs {
+  firstArgValue: string | undefined;
+  optionsMethod: string | undefined;
+}
+
+/**
+ * Extract HTTP call arguments from the arguments node of a call site.
+ *
+ * - `firstArgValue`: raw text of the first argument if it is a string literal
+ *   (`'...'`, `"..."`, backtick `\`...\``) or a template literal containing
+ *   `${…}` expressions. Returns `undefined` for any other expression type
+ *   (identifiers, binary expressions, computed members — i.e. non-static URLs).
+ * - `optionsMethod`: value of the `method` property when the second argument
+ *   is an object literal, e.g. `fetch(url, { method: 'POST' })`. Returns
+ *   `undefined` if the second arg is absent, not an object literal, or does
+ *   not contain a `method` key with a string-literal value.
+ *
+ * This is called once per call-node during the main AST walk — the parse tree
+ * is freed after extraction, so the values must be captured here.
+ */
+export function extractHttpCallArgs(argsNode: Node | null | undefined): HttpCallArgs {
+  if (!argsNode) return { firstArgValue: undefined, optionsMethod: undefined };
+
+  const firstArg = argsNode.namedChildren[0];
+  const firstArgValue = extractStringLiteralValue(firstArg);
+
+  const secondArg = argsNode.namedChildren[1];
+  const optionsMethod = extractObjectMethodProperty(secondArg);
+
+  return { firstArgValue, optionsMethod };
+}
+
+/**
+ * Return the raw text content of a string/template literal node, stripped of
+ * its surrounding quotes. Returns `undefined` for non-literal node types.
+ *
+ * Accepted node types (tree-sitter names across JS/TS/Python/Go):
+ *   string, string_literal, template_string, template_literal,
+ *   interpreted_string_literal, raw_string_literal
+ */
+function extractStringLiteralValue(node: Node | null | undefined): string | undefined {
+  if (!node) return undefined;
+  const { type } = node;
+  const isStringLiteral =
+    type === 'string' ||
+    type === 'string_literal' ||
+    type === 'template_string' ||
+    type === 'template_literal' ||
+    type === 'interpreted_string_literal' ||
+    type === 'raw_string_literal';
+  if (!isStringLiteral) return undefined;
+  // Strip surrounding quotes / backticks.
+  return node.text.replace(/^['"`]|['"`]$/g, '');
+}
+
+/**
+ * Given a node that may be an object literal (second arg to fetch, etc.), look
+ * for a `method` property whose value is a string literal and return its text
+ * (uppercased for normalisation). Returns `undefined` if the shape doesn't
+ * match.
+ *
+ * Accepted object node types: object, object_expression, object_literal.
+ */
+function extractObjectMethodProperty(node: Node | null | undefined): string | undefined {
+  if (!node) return undefined;
+  const { type } = node;
+  if (type !== 'object' && type !== 'object_expression' && type !== 'object_literal') {
+    return undefined;
+  }
+  // Scan named children for a pair/property whose key is "method".
+  for (const child of node.namedChildren) {
+    // tree-sitter JS/TS: pair node has key + value fields.
+    // tree-sitter also uses property/shorthand_property_identifier.
+    const keyNode =
+      child.childForFieldName('key') ??
+      child.childForFieldName('name') ??
+      child.firstNamedChild;
+    if (!keyNode) continue;
+    const keyText = keyNode.text.replace(/^['"`]|['"`]$/g, '');
+    if (keyText !== 'method') continue;
+    const valueNode = child.childForFieldName('value') ?? child.namedChildren[1];
+    if (!valueNode) continue;
+    const raw = extractStringLiteralValue(valueNode);
+    if (raw !== undefined) return raw.toUpperCase();
+  }
+  return undefined;
+}

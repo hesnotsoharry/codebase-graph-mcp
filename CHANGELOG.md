@@ -6,6 +6,11 @@ All notable changes to this project are documented here. Format follows [Keep a 
 
 (No changes yet.)
 
+## [0.2.1] - 2026-06-01
+
+### Fixed
+- **Duplicate per-project databases from non-canonical root paths.** `buildDbPath()` hashed the raw `--root` string (or its `process.cwd()` fallback) with no normalization, so the same folder spelled two ways — `C:\Web App\X` (backslash, from a cwd fallback) vs `C:/Web App/X` (forward-slash, from an explicit `--root`) — produced two different `~/.codebase-graph/<hash>/` directories and indexed the project twice (observed on Windows: 5 real projects sprawled to 17 DBs, including an accidental whole-home index from a no-`--root` server launched in the home dir). The hash input is now canonicalized via a new pure, exported `rootHash()` helper (`path.resolve()` + backslash→forward-slash + lowercase), folding separator style, trailing slashes, and drive-letter case to a single hash. Existing databases re-hash to new directories and re-index once on next use. Regression coverage in `serverBootstrap.rootHash.test.ts`.
+
 ## [0.2.0] - 2026-05-27
 
 ### Added

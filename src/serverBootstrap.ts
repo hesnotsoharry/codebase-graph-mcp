@@ -140,11 +140,23 @@ function migrateOuroborosPath(home: string): void {
   }
 }
 
+/**
+ * Canonicalizes `rootPath` and returns its 8-char storage hash. Pure — no I/O.
+ *
+ * Folds path-separator style (backslash vs forward-slash), trailing slashes, and
+ * drive-letter case so two spellings of the SAME folder map to one DB. Without this,
+ * `C:\Web App\X` (from a cwd fallback) and `C:/Web App/X` (from an explicit --root)
+ * hash to two directories and index the same project twice.
+ */
+export function rootHash(rootPath: string): string {
+  const canonical = path.resolve(rootPath).replace(/\\/g, '/').toLowerCase();
+  return crypto.createHash('sha256').update(canonical).digest('hex').slice(0, 8);
+}
+
 /** Derives a stable DB path for `rootPath` under ~/.codebase-graph/<hash8>/. */
 export function buildDbPath(rootPath: string): string {
   migrateOuroborosPath(os.homedir());
-  const hash = crypto.createHash('sha256').update(rootPath).digest('hex').slice(0, 8);
-  const dir = path.join(os.homedir(), '.codebase-graph', hash);
+  const dir = path.join(os.homedir(), '.codebase-graph', rootHash(rootPath));
   fs.mkdirSync(dir, { recursive: true });
   return path.join(dir, 'graph.db');
 }

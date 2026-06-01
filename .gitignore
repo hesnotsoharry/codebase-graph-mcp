@@ -1,8 +1,7 @@
 # Dependencies
 node_modules/
 
-# Build outputs
-dist/
+# Build outputs (dist/ is committed — git-distributed package, no install-time build)
 *.tsbuildinfo
 
 # npm pack tarballs

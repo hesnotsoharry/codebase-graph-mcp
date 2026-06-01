@@ -41,9 +41,8 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "tsc && node scripts/fix-extensions.mjs",
-    "test": "vitest run",
-    "prepare": "npm run build"
+    "build": "tsc -p tsconfig.build.json && node scripts/fix-extensions.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

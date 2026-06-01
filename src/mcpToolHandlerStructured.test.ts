@@ -154,6 +154,32 @@ describe('readParseAnomalies', () => {
     const r = readParseAnomalies('definitely-not-a-project', ctx);
     expect(r).toEqual({ count: 0, files: [] });
   });
+
+  it('round-trips 8 anomaly paths without truncation (v0.2.2 full-list guarantee)', () => {
+    // Write a stored anomaly payload that exceeds the old 5-sample cap.
+    const paths = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts', 'h.ts'];
+    db.setGraphMetadata(
+      `parse_anomalies:${PROJECT}`,
+      JSON.stringify({ count: 8, files: paths }),
+    );
+    const r = readParseAnomalies(PROJECT, ctx);
+    expect(r.count).toBe(8);
+    expect(r.files).toHaveLength(8);
+    expect(r.files).toEqual(paths);
+  });
+
+  it('reads legacy stored shape (samples field) without data loss on first boot after upgrade', () => {
+    // Older builds stored the field as `samples`. Verify the backwards-compat
+    // fallback in readParseAnomalies so a reindex isn't required after upgrading.
+    const legacyPaths = ['x.ts', 'y.ts', 'z.ts'];
+    db.setGraphMetadata(
+      `parse_anomalies:${PROJECT}`,
+      JSON.stringify({ count: 3, samples: legacyPaths }),
+    );
+    const r = readParseAnomalies(PROJECT, ctx);
+    expect(r.count).toBe(3);
+    expect(r.files).toEqual(legacyPaths);
+  });
 });
 
 describe('handleGetArchitecture — MCP envelope (Phase B1+B2)', () => {

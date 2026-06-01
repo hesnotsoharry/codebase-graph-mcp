@@ -14,7 +14,8 @@ export type NodeLabel =
   | 'Enum'
   | 'Route'
   | 'Variable'
-  | 'Export';
+  | 'Export'
+  | 'Test';
 
 // ─── Edge Types ──────────────────────────────────────────────────────────────
 

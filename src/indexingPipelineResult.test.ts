@@ -8,16 +8,20 @@ import { buildIndexResult, buildNoOpResult, type IndexResultOpts } from './index
 import type { DiscoveredFile } from './indexingPipelineTypes';
 import type { ParsedFileResult } from './treeSitterTypes';
 
-// Helper to create a minimal parsed file result
+// Helper to create a minimal parsed file result.
+// `calls` defaults to 1 so zero-definition files are treated as real source
+// (not pure-data-config objects) and still trigger the anomaly check.
 function createParsedFile(
   definitions: number = 1,
   lineCount: number = 50,
   exportedNames: number = 0,
+  calls: number = 1,
 ): ParsedFileResult {
   return {
     definitions: Array(definitions).fill({ name: 'dummy', kind: 'Function' }),
     lineCount,
     exportedNames: Array(exportedNames).fill('dummy'),
+    calls: Array(calls).fill({ calleeName: 'dummy', receiverName: null, startLine: 1, isAsync: false, arguments: 0, isNewExpression: false }),
     imports: [],
   } as unknown as ParsedFileResult;
 }
@@ -99,7 +103,7 @@ describe('buildIndexResult', () => {
     });
     expect(result.parseAnomalies).toBeDefined();
     expect(result.parseAnomalies!.count).toBe(0);
-    expect(result.parseAnomalies!.samples).toEqual([]);
+    expect(result.parseAnomalies!.files).toEqual([]);
   });
 
   it('includes parseAnomalies count when anomalies exist', () => {
@@ -158,7 +162,7 @@ describe('buildIndexResult', () => {
 
     expect(result.parseAnomalies).toBeDefined();
     expect(result.parseAnomalies!.count).toBe(1);
-    expect(result.parseAnomalies!.samples).toContain('src/anomaly.ts');
+    expect(result.parseAnomalies!.files).toContain('src/anomaly.ts');
   });
 
   it('calculates filesSkipped correctly', () => {

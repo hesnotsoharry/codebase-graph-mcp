@@ -189,7 +189,7 @@ function processTestFile(
   };
 
   return file.parsed.definitions
-    .filter((def) => def.kind === 'Function')
+    .filter((def) => def.kind === 'Function' || def.kind === 'Test')
     .flatMap((def) => buildTestFunctionEdges(ctx, def));
 }
 

@@ -12,7 +12,7 @@
 
 // ─── Node label constants (informational — actual values are in graphDatabaseTypes.ts) ──
 // Labels: Project, Package, Folder, File, Module, Function, Method, Class,
-//         Interface, Type, Enum, Route, Variable, Export
+//         Interface, Type, Enum, Route, Variable, Export, Test
 
 // ─── Edge type constants (informational — actual values are in graphDatabaseTypes.ts) ───
 // Types: CONTAINS_PACKAGE, CONTAINS_FOLDER, CONTAINS_FILE, DEFINES, DEFINES_METHOD,

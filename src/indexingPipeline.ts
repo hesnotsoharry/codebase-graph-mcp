@@ -335,8 +335,13 @@ export class IndexingPipeline {
     const diskPaths = new Set(allFiles.map((f) => f.relativePath));
     for (const hash of this.db.getAllFileHashes(projectName)) {
       if (!diskPaths.has(hash.rel_path)) {
-        this.db.deleteNodesByFile(projectName, hash.rel_path);
-        this.db.deleteFileHash(projectName, hash.rel_path);
+        // Wrap each file's two writes in one transaction so a mid-loop crash
+        // cannot leave nodes deleted but the hash record surviving (which would
+        // make the file appear "unchanged" forever on the next incremental run).
+        this.db.transaction(() => {
+          this.db.deleteNodesByFile(projectName, hash.rel_path);
+          this.db.deleteFileHash(projectName, hash.rel_path);
+        });
       }
     }
   }

@@ -16,6 +16,7 @@ import { Language, type Node, Parser } from 'web-tree-sitter';
 import { consoleErrorLogger as log } from './loggerInterface';
 import { getLanguageConfig } from './treeSitterLanguageConfigs';
 import { extractSingleDefinition } from './treeSitterParserDefs';
+import { extractTestCaseDefinitions } from './treeSitterTestExtractor';
 import {
   buildNodeTypeToLabelMap,
   collectDefaultImport,
@@ -203,6 +204,7 @@ export class TreeSitterParser {
 
     if (TS_JS_LANGUAGES.has(config.id)) {
       this.extractArrowFunctions(rootNode, definitions);
+      extractTestCaseDefinitions(rootNode, definitions);
     }
 
     return definitions;

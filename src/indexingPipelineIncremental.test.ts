@@ -164,9 +164,47 @@ describe('resolveIncrementalFiles', () => {
 
     expect(result.filesToProcess).toHaveLength(0);
     expect(result.isIncrementalRun).toBe(true);
-    // Fast-path: deleteNodes and pruneDeleted should NOT be called
+    // Fast-path: deleteNodes not called (nothing changed), but pruneDeleted IS
+    // called so deletion-only events (file removed, nothing else modified) are
+    // handled correctly — fixes the bug where deleted nodes persisted forever.
     expect(deleteNodesFn).not.toHaveBeenCalled();
-    expect(pruneDeletedFn).not.toHaveBeenCalled();
+    expect(pruneDeletedFn).toHaveBeenCalledWith(allFiles);
+  });
+
+  it('prunes deleted file nodes when the only change is a deletion (deletion-only event)', async () => {
+    // Simulate: full index previously ran with src/a.ts and src/b.ts.
+    // src/b.ts has since been deleted; discoverFiles now only returns src/a.ts.
+    const allFilesAfterDeletion = [makeFile('src/a.ts')];
+
+    const db = {
+      // Both files match their stored hash (nothing content-changed)
+      getFileHash: vi.fn().mockReturnValue({
+        mtime_ns: Math.floor(makeFile('src/a.ts').mtimeMs * 1e6),
+        size: makeFile('src/a.ts').sizeBytes,
+        content_hash: 'abc123',
+      }),
+      upsertFileHash: vi.fn(),
+    } as unknown as import('./graphDatabase').GraphDatabase;
+
+    const deleteNodesFn = vi.fn();
+    const pruneDeletedFn = vi.fn();
+
+    const result = await resolveIncrementalFiles({
+      db,
+      projectName: 'proj',
+      allFiles: allFilesAfterDeletion,
+      pruneDeleted: pruneDeletedFn,
+      deleteNodes: deleteNodesFn,
+    });
+
+    // No content changed — filesToProcess is empty and this is an incremental run
+    expect(result.filesToProcess).toHaveLength(0);
+    expect(result.isIncrementalRun).toBe(true);
+    // pruneDeleted MUST be called with the current disk state so src/b.ts nodes
+    // are removed from the graph (was the deletion-only bug before the fix)
+    expect(pruneDeletedFn).toHaveBeenCalledWith(allFilesAfterDeletion);
+    // deleteNodes is for content-changed files only — not called in a deletion-only event
+    expect(deleteNodesFn).not.toHaveBeenCalled();
   });
 
   it('calls deleteNodes for each changed file', async () => {

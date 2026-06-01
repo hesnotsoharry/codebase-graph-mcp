@@ -6,6 +6,20 @@ All notable changes to this project are documented here. Format follows [Keep a 
 
 (No changes yet.)
 
+## [0.2.2] - 2026-06-01
+
+### Added
+- **Test-case symbol extraction → working TESTS edges for test files.** Test frameworks write cases as call-expression arguments (`describe('s', () => …)`, `it('case', () => …)`), which the prior extractor — limited to top-level `function` declarations and `const fn = () =>` — never captured. Such test files produced zero symbols, so `testDetectPass` had no anchor and emitted zero TESTS edges. A new `extractTestCaseDefinitions` pass (`src/treeSitterTestExtractor.ts`) walks `call_expression` nodes, recognizes the Vitest/Jest/Mocha globals (`it`/`test`/`xit`/`fit`/`it.only`/… as leaf cases; `describe`/`suite`/`context`/… as structural scoping), and emits a new **`Test`** node per case (name = describe-chain-prefixed description, e.g. `UserService>creates a user`). `testDetectPass` now anchors TESTS edges off `Test` nodes as well as `Function` nodes. Dynamic test names (`it(variable, …)`, template literals) are skipped gracefully; table-driven `it.each(table)(name, fn)` is deferred to v0.3 (treated as structural for now).
+- **New `Test` node label** in the graph schema (no DB migration — `nodes.label` has no CHECK constraint). Kept distinct from `Function` so human-readable test descriptions don't pollute `search_graph`/FTS or the production-symbol surface.
+
+### Fixed
+- **Incremental indexing never pruned deleted files (orphan-node accumulation).** A fast-path guard in `resolveIncrementalFiles` (`indexingPipelineIncremental.ts`) returned early whenever no file was *modified*, skipping the prune step entirely. A deletion-only event (file removed, nothing else changed) hit this path, so the deleted file's nodes + edges persisted forever — incremental indexes drifted upward indefinitely (observed: a project at 3471 nodes that a clean full reindex put at 1828). The guard now calls `pruneDeleted(allFiles)` before returning (a cheap no-op when nothing was deleted).
+- **`pruneDeletedFiles` was not atomic.** Each deleted file's two writes (`deleteNodesByFile` + `deleteFileHash`) are now wrapped in a per-file transaction, so a mid-loop crash can no longer leave nodes deleted while the hash record survives (which would make the file appear "unchanged" forever and never re-index).
+- **Parse-anomaly false positives on config/script files.** Pure-config modules (`*.config.{js,ts,cjs,mjs}`, `.dependency-cruiser.*`) and zero-call/zero-import data modules parse cleanly but legitimately have no named functions; they are no longer flagged as anomalies. (Most prior test-file "anomalies" also disappear now that test cases are extracted as symbols.)
+
+### Changed
+- **`index_status` now reports the full anomaly file list, not a 5-sample truncation.** `countParseAnomalies` persists the complete list; `ParseAnomalyResult.samples` → `files`. Reads fall back to the old `samples` key for DBs written by pre-0.2.2 builds, so no forced reindex is required on upgrade.
+
 ## [0.2.1] - 2026-06-01
 
 ### Fixed

@@ -18,7 +18,7 @@ function parseRootArg(): string {
 
 const server = new McpServer({
   name: 'codebase-graph-mcp',
-  version: '0.2.0',
+  version: '0.2.2',
 });
 
 // NOTE: ping health-check tool is now registered via createGraphMcpTools() inside

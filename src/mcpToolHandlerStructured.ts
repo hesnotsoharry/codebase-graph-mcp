@@ -32,10 +32,17 @@ export function readParseAnomalies(
   try {
     const value = ctx.db.getGraphMetadata(`parse_anomalies:${projectName}`);
     if (!value) return { count: 0, files: [] };
-    const parsed = JSON.parse(value) as { count?: number; samples?: string[] };
+    // Stored shape uses `files` (v0.2.2+). Fall back to `samples` for DB rows
+    // written by older builds (pre-rename) so a cold-start reindex isn't required.
+    const parsed = JSON.parse(value) as { count?: number; files?: string[]; samples?: string[] };
+    const files = Array.isArray(parsed.files)
+      ? parsed.files
+      : Array.isArray(parsed.samples)
+        ? parsed.samples
+        : [];
     return {
       count: typeof parsed.count === 'number' ? parsed.count : 0,
-      files: Array.isArray(parsed.samples) ? parsed.samples : [],
+      files,
     };
   } catch {
     return { count: 0, files: [] };
@@ -47,7 +54,7 @@ function getParseAnomaliesLines(anomalies: ParseAnomalies): string[] {
     return ['', 'Parse anomalies: 0 file(s) with no definitions'];
   }
   const lines = [`Parse anomalies: ${anomalies.count} file(s) with no definitions`];
-  for (const sample of anomalies.files.slice(0, 5)) {
+  for (const sample of anomalies.files) {
     lines.push(`  - ${sample}`);
   }
   return ['', ...lines];

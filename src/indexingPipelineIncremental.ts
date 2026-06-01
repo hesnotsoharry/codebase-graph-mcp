@@ -156,6 +156,10 @@ export async function resolveIncrementalFiles(
   const isIncrementalRun = changed.length < allFiles.length;
 
   if (changed.length === 0 && isIncrementalRun) {
+    // Still prune deletions even when no files changed — a deletion-only
+    // event (file removed, nothing else modified) lands here and without
+    // this call the deleted file's nodes+edges persist forever.
+    pruneDeleted(allFiles);
     return { filesToProcess: [], isIncrementalRun };
   }
 

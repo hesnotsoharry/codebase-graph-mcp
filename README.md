@@ -8,28 +8,26 @@ Standalone MCP server for codebase graph queries: tree-sitter parsing, SQLite pe
 
 ## Quickstart
 
-### macOS / Linux
+**This server is installed from GitHub (git), not the npm registry.** The first install builds from source (tree-sitter and other native dependencies will compile).
 
 ```bash
-# Register with Claude Code at user scope (available in all sessions)
-claude mcp add --transport stdio --scope user codebase_graph -- npx -y @hesnotsoharry/codebase-graph-mcp
-```
+# Step 1 — install globally from GitHub
+npm install -g github:hesnotsoharry/codebase-graph-mcp
 
-### Windows
+# Step 2 — register with Claude Code at user scope (cross-platform)
+# macOS / Linux
+claude mcp add --scope user codebase_graph node "$(npm root -g)/@hesnotsoharry/codebase-graph-mcp/dist/index.js"
 
-`npx -y` does **not** work reliably on Windows. Windows `spawn` does not resolve `.cmd` shims without `shell: true`, which Claude Code's MCP runner does not pass — CVE-2024-27980 made this regress further.
-
-Use the Windows-canonical pattern instead:
-
-```powershell
-# Step 1 — install globally
-npm install -g @hesnotsoharry/codebase-graph-mcp
-
-# Step 2 — register via direct node invocation (PowerShell)
+# Windows (PowerShell)
 claude mcp add --scope user codebase_graph node "$(npm root -g)\@hesnotsoharry\codebase-graph-mcp\dist\index.js"
 ```
 
-If you hit a `✗ Failed to connect` error after registering, see [Troubleshooting](#troubleshooting) and the [Windows registration failure](https://github.com/hesnotsoharry/codebase-graph-mcp/issues/new?template=windows-spawn.yml) issue template.
+To pin a specific release tag, append `#v0.3.0` to the install command:
+```bash
+npm install -g github:hesnotsoharry/codebase-graph-mcp#v0.3.0
+```
+
+If you hit a `✗ Failed to connect` error after registering, see [Troubleshooting](#troubleshooting).
 
 ## Configuration
 
@@ -38,21 +36,27 @@ If you hit a `✗ Failed to connect` error after registering, see [Troubleshooti
 **User scope** (recommended — available in every Claude Code session on this machine):
 
 ```bash
-# macOS / Linux
-claude mcp add --transport stdio --scope user codebase_graph -- npx -y @hesnotsoharry/codebase-graph-mcp
+# First, install globally from GitHub
+npm install -g github:hesnotsoharry/codebase-graph-mcp
 
-# Windows
+# Then register at user scope
+# macOS / Linux
+claude mcp add --scope user codebase_graph node "$(npm root -g)/@hesnotsoharry/codebase-graph-mcp/dist/index.js"
+
+# Windows (PowerShell)
 claude mcp add --scope user codebase_graph node "$(npm root -g)\@hesnotsoharry\codebase-graph-mcp\dist\index.js"
 ```
 
 **Project scope** (checked into repo; shared with collaborators via `.claude/settings.json`):
 
+After installing globally (above), register at project scope:
+
 ```bash
 # macOS / Linux
-claude mcp add --transport stdio --scope project codebase_graph -- npx -y @hesnotsoharry/codebase-graph-mcp
+claude mcp add --scope project codebase_graph node "$(npm root -g)/@hesnotsoharry/codebase-graph-mcp/dist/index.js"
 
-# Windows — substitute the absolute path from Step 2 above
-claude mcp add --scope project codebase_graph node "C:\path\to\node_modules\@hesnotsoharry\codebase-graph-mcp\dist\index.js"
+# Windows (PowerShell)
+claude mcp add --scope project codebase_graph node "$(npm root -g)\@hesnotsoharry\codebase-graph-mcp\dist\index.js"
 ```
 
 > **Server-name convention:** use `codebase_graph` (underscore, not hyphen). Claude Code's `execute_code` codemode accesses tools via `servers.<name>.<tool>` — hyphens break JavaScript property access. The tools surface as `mcp__codebase_graph__*` in a Claude Code session.
@@ -147,11 +151,16 @@ After the initial index, the server watches for file changes via `@parcel/watche
 
 ### `✗ Failed to connect` on Windows
 
-You are likely hitting the `npx.cmd` spawn issue. Switch to the `node <absolute-path>` pattern:
+Ensure the package is installed globally and the path is correct:
 
 ```powershell
-npm install -g @hesnotsoharry/codebase-graph-mcp
+npm install -g github:hesnotsoharry/codebase-graph-mcp
 claude mcp add --scope user codebase_graph node "$(npm root -g)\@hesnotsoharry\codebase-graph-mcp\dist\index.js"
+```
+
+Verify the path exists with:
+```powershell
+Test-Path "$(npm root -g)\@hesnotsoharry\codebase-graph-mcp\dist\index.js"
 ```
 
 If this still fails, file an issue using the [Windows registration failure](https://github.com/hesnotsoharry/codebase-graph-mcp/issues/new?template=windows-spawn.yml) template — it prompts for the diagnostics needed to triage the specific failure.
@@ -200,6 +209,22 @@ codebase_graph: node C:\Users\YOU\AppData\Roaming\npm\node_modules\@hesnotsoharr
 ```
 
 Tools surface as `mcp__codebase_graph__*` in Claude Code sessions (underscore namespace, not hyphen — JavaScript object-key compatibility).
+
+## Upgrading
+
+To update to the latest version from GitHub:
+
+```bash
+npm install -g github:hesnotsoharry/codebase-graph-mcp
+```
+
+To pin a specific release tag:
+
+```bash
+npm install -g github:hesnotsoharry/codebase-graph-mcp#v0.3.0
+```
+
+Claude Code will automatically reconnect to the server on the next session.
 
 ## Logging
 

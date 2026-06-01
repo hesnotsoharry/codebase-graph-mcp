@@ -1,6 +1,7 @@
 {
   "name": "@hesnotsoharry/codebase-graph-mcp",
   "version": "0.3.0",
+  "private": true,
   "description": "Standalone MCP server for codebase graph queries: tree-sitter parsing, SQLite persistence, AST + call-graph traversal.",
   "keywords": [
     "mcp",
@@ -42,7 +43,7 @@
   "scripts": {
     "build": "tsc && node scripts/fix-extensions.mjs",
     "test": "vitest run",
-    "prepublishOnly": "npm run build"
+    "prepare": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

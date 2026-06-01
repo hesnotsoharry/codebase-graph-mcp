@@ -217,6 +217,37 @@ export interface ProjectRecord {
   edge_count: number;
 }
 
+// ─── Edge resolution provenance ──────────────────────────────────────────────
+
+/**
+ * How a graph edge was resolved. Stored as `props.resolution_method` on every
+ * edge written by a resolution pass.
+ *
+ * Values:
+ *   `compiler_api`    — reserved for Wave 2 (ts-morph / tsc type-checked resolution)
+ *   `import_resolved` — callee was found by tracing an explicit import statement
+ *   `same_file`       — callee is defined in the same file as the caller
+ *   `name_unique`     — callee name is unique across the project (single candidate)
+ *   `new_expression`  — `new X()` constructor — class node preferred among candidates
+ *   `url_literal`     — HTTP_CALLS edge matched by static literal URL path + method
+ *   `url_template`    — HTTP_CALLS edge matched by template-literal/param URL path + method
+ *   `heuristic_name`  — HTTP_CALLS edge fell back to caller-name / route-path string heuristic
+ *   `typeof_regex`    — TYPEOF_REFERENCES edge detected by regex scan of type-position `typeof`
+ */
+export const RESOLUTION_METHODS = [
+  'compiler_api',
+  'import_resolved',
+  'same_file',
+  'name_unique',
+  'new_expression',
+  'url_literal',
+  'url_template',
+  'heuristic_name',
+  'typeof_regex',
+] as const;
+
+export type ResolutionMethod = (typeof RESOLUTION_METHODS)[number];
+
 // ─── ADR (Architecture Decision Record) ──────────────────────────────────────
 
 export interface ADRRecord {

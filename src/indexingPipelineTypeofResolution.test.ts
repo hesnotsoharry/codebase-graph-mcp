@@ -121,6 +121,7 @@ type MyType = typeof useConfig;
     expect(Array.isArray(props.patterns)).toBe(true);
     expect((props.patterns as string[])).toContain('typeof' as TypeofPattern);
     expect(props.line).toBe(2); // Second line (1-based)
+    expect(props.resolution_method).toBe('typeof_regex');
   });
 
   it('emits TYPEOF_REFERENCES edge for `ReturnType<typeof X>`', () => {

@@ -7,7 +7,7 @@
  */
 
 import type { GraphDatabase } from './graphDatabase';
-import type { GraphEdge } from './graphDatabaseTypes';
+import type { GraphEdge, ResolutionMethod } from './graphDatabaseTypes';
 import type { IndexedFile } from './indexingPipelineTypes';
 
 // ─── Call resolution context types ───────────────────────────────────────────
@@ -86,6 +86,7 @@ const CONFIDENCE_NEW_EXPRESSION_CLASS = 0.65;
 interface CalleeResolution {
   calleeQn: string;
   confidence: number;
+  resolutionMethod: ResolutionMethod;
 }
 
 function resolveCallee(
@@ -95,23 +96,35 @@ function resolveCallee(
   isNewExpression = false,
 ): CalleeResolution | null {
   if (fileCtx.importedNames.has(calleeName)) {
-    return { calleeQn: fileCtx.importedNames.get(calleeName)!, confidence: CONFIDENCE_IMPORT_RESOLVED };
+    return {
+      calleeQn: fileCtx.importedNames.get(calleeName)!,
+      confidence: CONFIDENCE_IMPORT_RESOLVED,
+      resolutionMethod: 'import_resolved',
+    };
   }
   const sameFileDef = fileCtx.fileDefs.find((d) => d.name === calleeName);
   if (sameFileDef) {
-    return { calleeQn: `${fileCtx.fileQn}.${sameFileDef.name}`, confidence: CONFIDENCE_SAME_FILE };
+    return {
+      calleeQn: `${fileCtx.fileQn}.${sameFileDef.name}`,
+      confidence: CONFIDENCE_SAME_FILE,
+      resolutionMethod: 'same_file',
+    };
   }
   const candidates = ctx.symbolsByName.get(calleeName) ?? [];
   if (candidates.length === 0) return null;
   if (candidates.length === 1) {
-    return { calleeQn: candidates[0], confidence: CONFIDENCE_NAME_UNIQUE };
+    return { calleeQn: candidates[0], confidence: CONFIDENCE_NAME_UNIQUE, resolutionMethod: 'name_unique' };
   }
   // Multiple candidates: for `new X()` prefer the Class node (qualified name ends with .X
   // and the node was registered via the Class label). Caller passes isNewExpression.
   if (isNewExpression) {
     const classCandidate = candidates.find((id) => ctx.classIds?.has(id));
     if (classCandidate) {
-      return { calleeQn: classCandidate, confidence: CONFIDENCE_NEW_EXPRESSION_CLASS };
+      return {
+        calleeQn: classCandidate,
+        confidence: CONFIDENCE_NEW_EXPRESSION_CLASS,
+        resolutionMethod: 'new_expression',
+      };
     }
   }
   return null;
@@ -144,7 +157,7 @@ function resolveCallEdges(
           source_id: callerQn,
           target_id: resolved.calleeQn,
           type: call.isAsync ? 'ASYNC_CALLS' : 'CALLS',
-          props: {},
+          props: { resolution_method: resolved.resolutionMethod },
           confidence: resolved.confidence,
         });
       }

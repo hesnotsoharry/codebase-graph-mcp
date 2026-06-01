@@ -229,6 +229,7 @@ function resolveTypeofEdges(
             pattern: site.pattern,
             line: site.startLine,
             context: site.context,
+            resolution_method: 'typeof_regex',
           },
           confidence: 0.9, // High confidence — typeof is explicit syntax, not inferred
         });

@@ -117,7 +117,7 @@ describe('callResolutionPass — confidence emission', () => {
 
   // ─── Path 1: Import-resolved ──────────────────────────────────────────────
 
-  it('emits confidence ~0.95 for import-resolved calls', () => {
+  it('emits confidence ~0.95 and resolution_method import_resolved for import-resolved calls', () => {
     const callerQn = `${PROJECT}.src.main.main`;
     const targetId = `${PROJECT}.src.utils.parseConfig`;
     db.insertNodes([
@@ -140,11 +140,12 @@ describe('callResolutionPass — confidence emission', () => {
     expect(edges).toHaveLength(1);
     expect(edges[0].confidence).toBeGreaterThanOrEqual(0.9);
     expect(edges[0].confidence).toBeLessThanOrEqual(1.0);
+    expect((edges[0].props as Record<string, unknown>).resolution_method).toBe('import_resolved');
   });
 
   // ─── Path 2: Same-file definition ────────────────────────────────────────
 
-  it('emits confidence ~0.85 for same-file definition resolution', () => {
+  it('emits confidence ~0.85 and resolution_method same_file for same-file definition resolution', () => {
     const callerQn = `${PROJECT}.src.utils.processItem`;
     const targetQn = `${PROJECT}.src.utils.helper`;
     db.insertNodes([
@@ -166,11 +167,12 @@ describe('callResolutionPass — confidence emission', () => {
     expect(edges).toHaveLength(1);
     expect(edges[0].confidence).toBeGreaterThanOrEqual(0.8);
     expect(edges[0].confidence).toBeLessThanOrEqual(0.9);
+    expect((edges[0].props as Record<string, unknown>).resolution_method).toBe('same_file');
   });
 
   // ─── Path 3: Single global match (name-unique) ────────────────────────────
 
-  it('emits confidence ~0.80 for name-unique global resolution', () => {
+  it('emits confidence ~0.80 and resolution_method name_unique for name-unique global resolution', () => {
     const callerQn = `${PROJECT}.src.consumer.consume`;
     const targetId = `${PROJECT}.src.lib.uniqueFn`;
     db.insertNodes([
@@ -192,11 +194,12 @@ describe('callResolutionPass — confidence emission', () => {
     expect(edges).toHaveLength(1);
     expect(edges[0].confidence).toBeGreaterThanOrEqual(0.75);
     expect(edges[0].confidence).toBeLessThanOrEqual(0.85);
+    expect((edges[0].props as Record<string, unknown>).resolution_method).toBe('name_unique');
   });
 
   // ─── Path 4: New-expression class disambiguation ──────────────────────────
 
-  it('emits confidence ~0.65 for new-expression class disambiguation', () => {
+  it('emits confidence ~0.65 and resolution_method new_expression for new-expression class disambiguation', () => {
     const callerQn = `${PROJECT}.src.factory.create`;
     const classId1 = `${PROJECT}.src.a.MyClass`;
     const classId2 = `${PROJECT}.src.b.MyClass`;
@@ -220,6 +223,7 @@ describe('callResolutionPass — confidence emission', () => {
     expect(edges).toHaveLength(1);
     expect(edges[0].confidence).toBeGreaterThanOrEqual(0.6);
     expect(edges[0].confidence).toBeLessThanOrEqual(0.7);
+    expect((edges[0].props as Record<string, unknown>).resolution_method).toBe('new_expression');
   });
 
   // ─── No edge: ambiguous collision, non-new-expression ────────────────────

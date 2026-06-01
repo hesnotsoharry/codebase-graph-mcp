@@ -55,8 +55,10 @@ describe('CypherEngine.execute — entry point contract', () => {
     expect(r.rows[0].b_name).toBe('Bar');
   });
 
-  it('WITH clause throws structured error', () => {
-    expect(() => engine.execute('WITH 1 AS x MATCH (n) RETURN n.name')).toThrow(/Cypher feature not supported.*WITH/);
+  it('WITH pipe is supported — MATCH (n) WITH n RETURN n.name executes without error', () => {
+    // Wave 1 Phase 2: WITH is now a supported single-stage passthrough pipe.
+    const r = engine.execute('MATCH (n) WITH n RETURN n.name');
+    expect(r.rows.length).toBeGreaterThan(0);
   });
 
   it('write query throws read-only error', () => {

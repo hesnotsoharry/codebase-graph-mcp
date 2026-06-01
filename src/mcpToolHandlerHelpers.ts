@@ -313,10 +313,16 @@ function formatQueryResultText(result: {
   columns: string[];
   rows: Array<Record<string, unknown>>;
   total: number;
+  truncated: boolean;
 }): string {
   if (result.rows.length === 0) return 'No results.';
 
   const lines = [`Columns: ${result.columns.join(', ')}`, `Results: ${result.total}`, ''];
+
+  if (result.truncated) {
+    lines.push('(truncated — more rows exist; use offset/limit to page)');
+    lines.push('');
+  }
 
   for (const row of result.rows) {
     const values = result.columns.map((col) => {
@@ -334,12 +340,15 @@ export async function handleQueryGraph(
   args: Record<string, unknown>,
   cypherEngine: CypherEngine,
 ): Promise<McpToolResult> {
-  const result = cypherEngine.execute(args.query as string);
+  const limit = typeof args.limit === 'number' && args.limit > 0 ? args.limit : undefined;
+  const offset = typeof args.offset === 'number' && args.offset >= 0 ? args.offset : undefined;
+  const result = cypherEngine.execute(args.query as string, { limit, offset });
   return textResult(formatQueryResultText(result), {
     structuredContent: {
       columns: result.columns,
       rows: result.rows,
       total: result.total,
+      truncated: result.truncated,
     },
   });
 }

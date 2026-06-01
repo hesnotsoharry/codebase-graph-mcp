@@ -169,7 +169,21 @@ const TOOL_SCHEMAS = {
     },
     required: [],
   },
-  query_graph: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+  query_graph: {
+    type: 'object',
+    properties: {
+      query: { type: 'string' },
+      limit: {
+        type: 'number',
+        description: 'Maximum rows to return per page. Defaults to 200. Use with offset to paginate.',
+      },
+      offset: {
+        type: 'number',
+        description: 'Zero-based row offset for pagination. Defaults to 0.',
+      },
+    },
+    required: ['query'],
+  },
   manage_adr: {
     type: 'object',
     properties: {
@@ -351,7 +365,7 @@ function buildCypherAndAdrTools(context: GraphToolContext): McpToolDefinition[] 
     {
       name: 'query_graph',
       description:
-        "Complex relationship queries. Cypher-subset: MATCH (n:Label), (a)-[:TYPE]->(b), (a)-[:TYPE*1..3]->(b); WHERE n.prop {=,<>,<,>,<=,>=,CONTAINS,STARTS WITH,ENDS WITH,IN} AND/OR; RETURN n.prop, COUNT(*), labels(n), DISTINCT; ORDER BY, LIMIT. Node columns: name, qualified_name, file_path, start_line, end_line, label, id, project. Any other property name (e.g. n.signature) falls through to JSON_EXTRACT against the node's props blob. Use labels(n) for the node label string; for set-membership use either `n.label IN ['A','B']` or `labels(n) IN ['A','B']` (or `MATCH (n:Label)`). Capped at 200 rows. Use search_graph for simple symbol lookups. Call get_graph_schema first to discover node labels, edge types, and exact property names.",
+        "Complex relationship queries. Cypher-subset: MATCH (n:Label), (a)-[:TYPE]->(b), (a)-[:TYPE*1..3]->(b), MATCH (n) WITH n WHERE ..., WHERE NOT ()-[:TYPE]->(n); WHERE n.prop {=,<>,<,>,<=,>=,CONTAINS,STARTS WITH,ENDS WITH,IN} AND/OR; RETURN n.prop, COUNT(*), labels(n), DISTINCT; ORDER BY, LIMIT. Node columns: name, qualified_name, file_path, start_line, end_line, label, id, project. Any other property name (e.g. n.signature) falls through to JSON_EXTRACT against the node's props blob. Use labels(n) for the node label string; for set-membership use either `n.label IN ['A','B']` or `labels(n) IN ['A','B']` (or `MATCH (n:Label)`). Defaults to 200 rows per page. Supports limit/offset pagination; response includes truncated:true when more rows exist. Use search_graph for simple symbol lookups. Call get_graph_schema first to discover node labels, edge types, and exact property names.",
       inputSchema: TOOL_SCHEMAS.query_graph,
       handler: async (a: Record<string, unknown>) =>
         safeStructured('Query error', handleQueryGraph(a, cypherEngine)),

@@ -88,13 +88,17 @@ const SUPPORTED_CYPHER_FEATURES = [
   'MATCH (a)-[:X]->(b), (b)-[:Y]->(c)  — multi-pattern (comma-separated)',
   'OPTIONAL MATCH (a)-[:TYPE]->(b)  — LEFT JOIN; unmatched right side returns null',
   'UNWIND [v1, v2, ...] AS x  — literal list only; no pipeline UNWIND',
+  'WITH <alias> [, ...]  — single-stage passthrough pipe: MATCH (n) WITH n WHERE ... RETURN n',
+  'WHERE NOT ()-[:TYPE]->(n)  — negated existence: returns nodes with no inbound TYPE edge',
+  'WHERE NOT (n)-[:TYPE]->()  — negated existence: returns nodes with no outbound TYPE edge',
   'WHERE: =, <>, <, >, <=, >=, CONTAINS, STARTS WITH, ENDS WITH, IN, AND, OR',
   'RETURN n.prop, COUNT(*), COUNT(n), labels(n), DISTINCT',
   'ORDER BY n.prop [ASC|DESC], LIMIT N',
+  'Pagination: limit (default 200) and offset MCP parameters on query_graph; response includes truncated flag',
   'Node columns (direct): name, qualified_name, file_path, start_line, end_line, label, id, project',
   'Any other property name falls through to JSON_EXTRACT on the node props blob',
   'indexed_at comparisons: ISO date strings (e.g. "2026-01-01") are auto-coerced to epoch ms',
-  'NOT supported: WITH (pipeline), parametric UNWIND, function calls (datetime(), length(), etc.)',
+  'NOT supported: parametric UNWIND, function calls (datetime(), length(), etc.)',
 ];
 
 export async function handleGetGraphSchema(ctx: GraphToolContext): Promise<string> {

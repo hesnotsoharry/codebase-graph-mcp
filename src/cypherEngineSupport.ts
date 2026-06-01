@@ -30,7 +30,20 @@ export type MatchPattern =
 
 export type WhereValue = string | number | (string | number)[];
 
-export interface WhereCondition {
+/** Negated existence condition: WHERE NOT (src)-[:TYPE]->(tgt). */
+export interface NegatedExistenceCondition {
+  kind: 'negated_existence';
+  /** Alias of the node already bound in the MATCH clause (the anchor). */
+  anchorAlias: string;
+  /** Whether the anchor is the source or target of the negated edge. */
+  anchorRole: 'source' | 'target';
+  /** Edge type filter; null means any edge type. */
+  edgeType: string | null;
+  conjunction: 'AND' | 'OR' | null;
+}
+
+export interface ScalarWhereCondition {
+  kind?: undefined;
   alias: string;
   property: string;
   operator: string;
@@ -41,6 +54,9 @@ export interface WhereCondition {
   value: WhereValue;
   conjunction: 'AND' | 'OR' | null;
 }
+
+/** A WHERE condition is either a scalar comparison or a negated existence pattern. */
+export type WhereCondition = ScalarWhereCondition | NegatedExistenceCondition;
 
 /** Parsed UNWIND clause: a literal value list and the AS alias. */
 export interface UnwindClause {
@@ -54,12 +70,16 @@ export interface ParsedQuery {
   returnFields: ReturnField[];
   orderBy: OrderByClause[];
   limit: number;
+  /** SQL OFFSET for pagination; 0 = no offset. */
+  offset: number;
   isCount: boolean;
   isDistinct: boolean;
   /** OPTIONAL MATCH pattern — translates to LEFT JOIN. */
   optionalMatch: MatchPattern | null;
   /** UNWIND clause — literal list expansion via VALUES CTE. */
   unwind: UnwindClause | null;
+  /** WITH clause alias(es) — currently a passthrough pipe that re-binds aliases. */
+  withAliases: string[] | null;
 }
 
 export interface ReturnField {

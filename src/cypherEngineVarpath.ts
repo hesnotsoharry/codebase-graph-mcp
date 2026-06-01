@@ -38,6 +38,7 @@ export function buildVarpathStartConditions(
   }
 
   for (const cond of where) {
+    if (cond.kind === 'negated_existence') continue; // varpath doesn't handle NOT EXISTS patterns
     if (cond.alias === left.alias) {
       const expr = resolvers.resolveColumnExpression('n_start', cond.property);
       const sqlOp = resolvers.cypherOpToSql(cond.operator);
@@ -64,6 +65,7 @@ export function buildVarpathEndConditions(
   }
 
   for (const cond of where) {
+    if (cond.kind === 'negated_existence') continue; // varpath doesn't handle NOT EXISTS patterns
     if (cond.alias === right.alias) {
       const expr = resolvers.resolveColumnExpression('n_end', cond.property);
       const sqlOp = resolvers.cypherOpToSql(cond.operator);

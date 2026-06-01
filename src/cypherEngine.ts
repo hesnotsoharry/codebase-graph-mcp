@@ -31,11 +31,14 @@ import {
   extractClause,
   extractOptionalMatchClause,
   extractUnwindClause,
+  extractWithClause,
   parseOrderBy,
   parseUnwind,
   parseWhere,
+  parseWithAliases,
 } from './cypherEngineParser';
 import {
+  buildNotExistsSql,
   buildOrderBy,
   buildWhereRhs,
   cypherOpToSql,
@@ -72,6 +75,22 @@ export interface CypherQueryResult {
   columns: string[];
   rows: Record<string, unknown>[];
   total: number;
+  /**
+   * True when more rows exist beyond the returned page. A page limit is always
+   * applied — the explicit `limit`, or a 200-row default — so this is true
+   * whenever the match set exceeds the page, INCLUDING the default cap with no
+   * explicit pagination. It is the signal that an empty/short result is a real
+   * answer and not silent truncation; page through the rest with offset/limit.
+   */
+  truncated: boolean;
+}
+
+/** Options for paginated execution of a Cypher query from the MCP tool layer. */
+export interface CypherExecuteOptions {
+  /** Maximum rows to return (overrides the Cypher LIMIT in the query). */
+  limit?: number;
+  /** Zero-based row offset (SQL OFFSET). */
+  offset?: number;
 }
 
 export class CypherEngine {
@@ -80,13 +99,20 @@ export class CypherEngine {
     private projectName: string,
   ) {}
 
-  execute(query: string): CypherQueryResult {
+  execute(query: string, options?: CypherExecuteOptions): CypherQueryResult {
     const trimmed = query.trim();
     if (isWriteQuery(trimmed)) throw new Error('Only read-only queries are allowed');
-    const parsed = this.parse(trimmed);
+    const parsed = this.parse(trimmed, options);
     const sql = this.toSql(parsed);
     const rawRows = this.db.rawQuery(sql.text, sql.params) as Record<string, unknown>[];
-    const mappedRows = rawRows.map((row) => {
+
+    // Pagination: we fetch (limit + 1) rows to detect truncation without a count query.
+    // The extra row is never returned to the caller.
+    const pageLimit = parsed.limit;
+    const truncated = rawRows.length > pageLimit;
+    const pageRows = truncated ? rawRows.slice(0, pageLimit) : rawRows;
+
+    const mappedRows = pageRows.map((row) => {
       const mapped: Record<string, unknown> = {};
       for (const field of parsed.returnFields) {
         mapped[field.outputName] = (row as Record<string, unknown>)[field.outputName] ?? null;
@@ -98,7 +124,7 @@ export class CypherEngine {
       }
       return mapped;
     });
-    return { columns: parsed.returnFields.map((f) => f.outputName), rows: mappedRows, total: mappedRows.length };
+    return { columns: parsed.returnFields.map((f) => f.outputName), rows: mappedRows, total: mappedRows.length, truncated };
   }
 
   // ═══ Parser ════════════════════════════════════════════════════════════════
@@ -110,7 +136,7 @@ export class CypherEngine {
     return parseMatch(matchClause);
   }
 
-  private parse(query: string): ParsedQuery {
+  private parse(query: string, options?: CypherExecuteOptions): ParsedQuery {
     assertNoUnsupportedClauses(query);
     const matchClause = extractClause(query, 'MATCH');
     const unwindStr = extractUnwindClause(query);
@@ -125,9 +151,20 @@ export class CypherEngine {
     const { fields: returnFields, isCount, isDistinct } = parseReturn(returnClause);
     const orderByClause = extractClause(query, 'ORDER BY');
     const orderBy = orderByClause ? parseOrderBy(orderByClause) : [];
-    const limit = this.parseLimit(extractClause(query, 'LIMIT'));
+    // External limit (from MCP pagination) overrides the Cypher LIMIT in the query.
+    const cypherLimit = this.parseLimit(extractClause(query, 'LIMIT'));
+    const externalLimit = options?.limit != null && options.limit > 0 ? options.limit : null;
+    const effectiveLimit = externalLimit ?? cypherLimit;
+    // parsed.limit = the true page size (user's requested max rows).
+    // All SQL builders use `parsed.limit + 1` when appending the LIMIT param so we can
+    // detect truncation by checking whether rawRows.length > parsed.limit — no extra
+    // COUNT query needed.
+    const limit = effectiveLimit;
+    const offset = options?.offset != null && options.offset > 0 ? options.offset : 0;
     const optionalMatch = optionalMatchStr ? parseMatch(optionalMatchStr) : null;
-    return { match, where, returnFields, orderBy, limit, isCount, isDistinct, optionalMatch, unwind };
+    const withStr = extractWithClause(query);
+    const withAliases = withStr ? parseWithAliases(withStr) : null;
+    return { match, where, returnFields, orderBy, limit, offset, isCount, isDistinct, optionalMatch, unwind, withAliases };
   }
 
   private parseLimit(limitClause: string | null): number {
@@ -182,8 +219,10 @@ export class CypherEngine {
       `WHERE ${conditions.join(' AND ')}`,
       orderBy ? `ORDER BY ${orderBy}` : '',
       `LIMIT ?`,
+      parsed.offset > 0 ? `OFFSET ?` : '',
     ].filter(Boolean).join(' ');
-    params.push(parsed.limit);
+    params.push(parsed.limit + 1);
+    if (parsed.offset > 0) params.push(parsed.offset);
     return { text: sql, params };
   }
 
@@ -199,7 +238,10 @@ export class CypherEngine {
         : parsed.returnFields
             .map((f) => f.property === '*' ? `${alias}.*` : `${alias}.${f.property} AS ${f.outputName}`)
             .join(', ');
-    return { text: `SELECT ${cols} FROM projects ${alias} WHERE ${alias}.name = ? LIMIT ?`, params: [this.projectName, parsed.limit] };
+    const params: unknown[] = [this.projectName, parsed.limit + 1];
+    const offsetClause = parsed.offset > 0 ? ' OFFSET ?' : '';
+    if (parsed.offset > 0) params.push(parsed.offset);
+    return { text: `SELECT ${cols} FROM projects ${alias} WHERE ${alias}.name = ? LIMIT ?${offsetClause}`, params };
   }
 
   private buildHopConditions(match: Extract<MatchPattern, { kind: 'hop' }>, params: unknown[]): string[] {
@@ -235,8 +277,10 @@ export class CypherEngine {
       `WHERE ${conditions.join(' AND ')}`,
       orderBy ? `ORDER BY ${orderBy}` : '',
       `LIMIT ?`,
+      parsed.offset > 0 ? `OFFSET ?` : '',
     ].filter(Boolean).join(' ');
-    params.push(parsed.limit);
+    params.push(parsed.limit + 1);
+    if (parsed.offset > 0) params.push(parsed.offset);
     return { text: sql, params };
   }
 
@@ -259,8 +303,10 @@ export class CypherEngine {
       : `e.target_id = r.current_id ${typeFilter}`;
     const endWhere = endConditions.length > 0 ? `AND ${endConditions.join(' AND ')}` : '';
     const selectParts = rawSelectParts.length === 0 ? ['n_end.*'] : rawSelectParts;
-    const sql = buildVarpathSqlTemplate({ startConditions, nextNode, edgeJoin, endWhere, distinct: parsed.isDistinct ? 'DISTINCT ' : '', selectParts, orderBy: buildOrderBy(parsed.orderBy) });
-    params.push(maxHops, minHops, maxHops, parsed.limit);
+    const rawSql = buildVarpathSqlTemplate({ startConditions, nextNode, edgeJoin, endWhere, distinct: parsed.isDistinct ? 'DISTINCT ' : '', selectParts, orderBy: buildOrderBy(parsed.orderBy) });
+    const sql = parsed.offset > 0 ? `${rawSql} OFFSET ?` : rawSql;
+    params.push(maxHops, minHops, maxHops, parsed.limit + 1);
+    if (parsed.offset > 0) params.push(parsed.offset);
     return { text: sql, params };
   }
 
@@ -303,11 +349,16 @@ export class CypherEngine {
   private addWhereConditions(where: WhereCondition[], conditions: string[], params: unknown[]): void {
     let prevConjunction: 'AND' | 'OR' | null = null;
     for (const cond of where) {
-      const expression = resolveColumnExpression(cond.alias, cond.property);
-      const sqlOp = cypherOpToSql(cond.operator);
-      const rhs = buildWhereRhs(cond);
-      mergeCondition(conditions, `${expression} ${sqlOp} ${rhs}`, prevConjunction);
-      pushWhereParam(params, cond);
+      if (cond.kind === 'negated_existence') {
+        // Negated existence: NOT EXISTS subquery — no bind params needed (correlated by alias.id).
+        mergeCondition(conditions, buildNotExistsSql(cond), prevConjunction);
+      } else {
+        const expression = resolveColumnExpression(cond.alias, cond.property);
+        const sqlOp = cypherOpToSql(cond.operator);
+        const rhs = buildWhereRhs(cond);
+        mergeCondition(conditions, `${expression} ${sqlOp} ${rhs}`, prevConjunction);
+        pushWhereParam(params, cond);
+      }
       prevConjunction = cond.conjunction;
     }
   }

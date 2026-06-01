@@ -137,15 +137,18 @@ export function buildMultiPatternSql(ctx: MultiPatternSqlContext): { text: strin
   ctx.addWhereConditions(parsed.where, whereConditions, whereParams);
   const selectCols = buildMultiPatternSelect(parsed, nodeAliases);
   const distinct = parsed.isDistinct ? 'DISTINCT ' : '';
+  const offsetClause = parsed.offset > 0 ? 'OFFSET ?' : '';
   const sql = [
     `SELECT ${distinct}${selectCols}`,
     `FROM nodes ${leftAlias}`,
     ...joinFragments,
     `WHERE ${whereConditions.join(' AND ')}`,
     `LIMIT ?`,
-  ].join(' ');
+    offsetClause,
+  ].filter(Boolean).join(' ');
   // Join params come before WHERE params in SQL order
-  const params = [...joinParams, ...whereParams, parsed.limit];
+  const params: unknown[] = [...joinParams, ...whereParams, parsed.limit + 1];
+  if (parsed.offset > 0) params.push(parsed.offset);
   return { text: sql, params };
 }
 
@@ -186,9 +189,11 @@ export function buildUnwindSql(ctx: UnwindSqlContext): { text: string; params: u
     `WHERE ${conditions.join(' AND ')}`,
     orderBy ? `ORDER BY ${orderBy}` : '',
     `LIMIT ?`,
+    ctx.parsed.offset > 0 ? `OFFSET ?` : '',
   ]
     .filter(Boolean)
     .join(' ');
-  params.push(ctx.parsed.limit);
+  params.push(ctx.parsed.limit + 1);
+  if (ctx.parsed.offset > 0) params.push(ctx.parsed.offset);
   return { text: sql, params };
 }

@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { CypherEngine } from './cypherEngine';
+import type { NodeLabel } from './graphDatabaseTypes';
 import { buildOptionalHopJoin, parseMultiPattern } from './cypherEngineNewFeatures';
 import type { MatchPattern } from './cypherEngineSupport';
 import { GraphDatabase } from './graphDatabase';
@@ -223,10 +224,9 @@ describe('CypherEngine — OPTIONAL MATCH', () => {
     expect(fn1Row!.c_name).toBe('Widget');
   });
 
-  it('WITH error still fires before OPTIONAL MATCH is attempted', () => {
-    expect(() => engine.execute('WITH 1 AS x MATCH (n) RETURN n.name')).toThrow(
-      /Cypher feature not supported.*WITH/,
-    );
+  it('WITH is now supported — MATCH (n) WITH n RETURN n.name executes without error', () => {
+    // Wave 1 Phase 2: WITH is a supported passthrough pipe; no longer throws.
+    expect(() => engine.execute('MATCH (n) WITH n RETURN n.name')).not.toThrow();
   });
 });
 
@@ -340,5 +340,232 @@ describe('CypherEngine — multi-pattern MATCH', () => {
     );
     expect(r.total).toBe(1);
     expect(r.rows[0].c_name).toBe('handler');
+  });
+});
+
+// ─── Wave 1 Phase 2: WITH pipe, negated existence, pagination ─────────────────
+
+const WAVE1_PROJECT = 'wave1-phase2-test';
+
+function seedWave1(db: GraphDatabase): void {
+  db.upsertProject({
+    name: WAVE1_PROJECT,
+    root_path: '/tmp',
+    indexed_at: 1000,
+    node_count: 4,
+    edge_count: 1,
+  });
+  db.insertNodes([
+    // calledFn: has an inbound CALLS edge
+    {
+      id: 'w1fn1',
+      project: WAVE1_PROJECT,
+      label: 'Function',
+      name: 'calledFn',
+      qualified_name: `${WAVE1_PROJECT}.calledFn`,
+      file_path: 'a.ts',
+      start_line: 1,
+      end_line: 5,
+      props: {},
+    },
+    // deadFn: has NO inbound CALLS edge (dead / uncalled)
+    {
+      id: 'w1fn2',
+      project: WAVE1_PROJECT,
+      label: 'Function',
+      name: 'deadFn',
+      qualified_name: `${WAVE1_PROJECT}.deadFn`,
+      file_path: 'a.ts',
+      start_line: 6,
+      end_line: 10,
+      props: {},
+    },
+    // callerFn: has an outbound CALLS edge, no inbound CALLS edge
+    {
+      id: 'w1fn3',
+      project: WAVE1_PROJECT,
+      label: 'Function',
+      name: 'callerFn',
+      qualified_name: `${WAVE1_PROJECT}.callerFn`,
+      file_path: 'b.ts',
+      start_line: 1,
+      end_line: 5,
+      props: {},
+    },
+    // MyClass: used for mixed-label / WITH filter tests
+    {
+      id: 'w1cls1',
+      project: WAVE1_PROJECT,
+      label: 'Class',
+      name: 'MyClass',
+      qualified_name: `${WAVE1_PROJECT}.MyClass`,
+      file_path: 'c.ts',
+      start_line: 1,
+      end_line: 20,
+      props: {},
+    },
+  ]);
+  // callerFn CALLS calledFn
+  db.insertEdges([
+    { project: WAVE1_PROJECT, source_id: 'w1fn3', target_id: 'w1fn1', type: 'CALLS', props: {} },
+  ]);
+}
+
+describe('CypherEngine — WITH pipe (Wave 1 Phase 2)', () => {
+  let db: GraphDatabase;
+  let engine: CypherEngine;
+
+  beforeEach(() => {
+    db = new GraphDatabase(':memory:');
+    seedWave1(db);
+    engine = new CypherEngine(db, WAVE1_PROJECT);
+  });
+  afterEach(() => db.close());
+
+  it("MATCH (n) WITH n WHERE n.label = 'Function' RETURN n.name returns only functions", () => {
+    const r = engine.execute("MATCH (n) WITH n WHERE n.label = 'Function' RETURN n.name");
+    const names = r.rows.map((row) => row.n_name);
+    expect(names).toContain('calledFn');
+    expect(names).toContain('deadFn');
+    expect(names).toContain('callerFn');
+    expect(names).not.toContain('MyClass');
+    expect(r.total).toBe(3);
+  });
+
+  it('WITH pipe with no following WHERE is a passthrough — all nodes returned', () => {
+    const r = engine.execute('MATCH (n) WITH n RETURN n.name');
+    expect(r.total).toBe(4);
+  });
+
+  it('WITH pipe + WHERE + LIMIT respects the limit', () => {
+    const r = engine.execute("MATCH (n) WITH n WHERE n.label = 'Function' RETURN n.name LIMIT 2");
+    expect(r.total).toBe(2);
+  });
+});
+
+describe('CypherEngine — WHERE NOT negated existence (Wave 1 Phase 2)', () => {
+  let db: GraphDatabase;
+  let engine: CypherEngine;
+
+  beforeEach(() => {
+    db = new GraphDatabase(':memory:');
+    seedWave1(db);
+    engine = new CypherEngine(db, WAVE1_PROJECT);
+  });
+  afterEach(() => db.close());
+
+  it('WHERE NOT ()-[:CALLS]->(n) returns uncalled functions and excludes calledFn', () => {
+    const r = engine.execute('MATCH (n:Function) WHERE NOT ()-[:CALLS]->(n) RETURN n.name');
+    const names = r.rows.map((row) => row.n_name);
+    // deadFn has no inbound CALLS edge → returned
+    expect(names).toContain('deadFn');
+    // callerFn has no inbound CALLS edge → returned
+    expect(names).toContain('callerFn');
+    // calledFn HAS an inbound CALLS edge → excluded
+    expect(names).not.toContain('calledFn');
+  });
+
+  it('WHERE NOT (n)-[:CALLS]->() returns functions that make no outbound calls', () => {
+    const r = engine.execute('MATCH (n:Function) WHERE NOT (n)-[:CALLS]->() RETURN n.name');
+    const names = r.rows.map((row) => row.n_name);
+    // deadFn has no outbound CALLS → returned
+    expect(names).toContain('deadFn');
+    // calledFn has no outbound CALLS → returned
+    expect(names).toContain('calledFn');
+    // callerFn HAS an outbound CALLS edge → excluded
+    expect(names).not.toContain('callerFn');
+  });
+
+  it('WHERE NOT ()-[:CALLS]->(n) AND scalar filter narrows to a single node', () => {
+    const r = engine.execute(
+      "MATCH (n:Function) WHERE NOT ()-[:CALLS]->(n) AND n.name = 'deadFn' RETURN n.name",
+    );
+    expect(r.total).toBe(1);
+    expect(r.rows[0].n_name).toBe('deadFn');
+  });
+});
+
+// ─── Pagination / truncated flag (>200 rows) ─────────────────────────────────
+
+const PAGINATION_PROJECT = 'pagination-test';
+
+/** Insert 250 Function nodes to test paging across the 200-row boundary. */
+function seedPagination(db: GraphDatabase): void {
+  db.upsertProject({
+    name: PAGINATION_PROJECT,
+    root_path: '/tmp',
+    indexed_at: 1000,
+    node_count: 250,
+    edge_count: 0,
+  });
+  const nodes = Array.from({ length: 250 }, (_, i) => ({
+    id: `pg_fn${i}`,
+    project: PAGINATION_PROJECT,
+    label: 'Function' as NodeLabel,
+    name: `fn${String(i).padStart(3, '0')}`,
+    qualified_name: `${PAGINATION_PROJECT}.fn${i}`,
+    file_path: 'a.ts',
+    start_line: i + 1,
+    end_line: i + 2,
+    props: {},
+  }));
+  db.insertNodes(nodes);
+}
+
+describe('CypherEngine — pagination and truncated flag (Wave 1 Phase 2)', () => {
+  let db: GraphDatabase;
+  let engine: CypherEngine;
+
+  beforeEach(() => {
+    db = new GraphDatabase(':memory:');
+    seedPagination(db);
+    engine = new CypherEngine(db, PAGINATION_PROJECT);
+  });
+  afterEach(() => db.close());
+
+  it('default execution of 250 rows sets truncated:true and returns 200 rows', () => {
+    const r = engine.execute('MATCH (n:Function) RETURN n.name');
+    expect(r.rows.length).toBe(200);
+    expect(r.truncated).toBe(true);
+  });
+
+  it('first page with limit=100 returns 100 rows and truncated:true', () => {
+    const r = engine.execute('MATCH (n:Function) RETURN n.name', { limit: 100 });
+    expect(r.rows.length).toBe(100);
+    expect(r.truncated).toBe(true);
+  });
+
+  it('third page with limit=100 offset=200 returns the remaining 50 rows and truncated:false', () => {
+    const r = engine.execute('MATCH (n:Function) RETURN n.name ORDER BY n.name', {
+      limit: 100,
+      offset: 200,
+    });
+    expect(r.rows.length).toBe(50);
+    expect(r.truncated).toBe(false);
+  });
+
+  it('paging through all 250 rows across three pages recovers all distinct names', () => {
+    const allNames = new Set<string>();
+    const opts = (offset: number) => ({ limit: 100, offset });
+    const page1 = engine.execute('MATCH (n:Function) RETURN n.name ORDER BY n.name', opts(0));
+    const page2 = engine.execute('MATCH (n:Function) RETURN n.name ORDER BY n.name', opts(100));
+    const page3 = engine.execute('MATCH (n:Function) RETURN n.name ORDER BY n.name', opts(200));
+    for (const row of [...page1.rows, ...page2.rows, ...page3.rows]) {
+      allNames.add(row.n_name as string);
+    }
+    expect(allNames.size).toBe(250);
+    expect(page1.truncated).toBe(true);
+    expect(page2.truncated).toBe(true);
+    expect(page3.truncated).toBe(false);
+  });
+
+  it('small dataset (≤200 rows) with default limit returns truncated:false', () => {
+    const smallDb = new GraphDatabase(':memory:');
+    seedWave1(smallDb);
+    const smallEngine = new CypherEngine(smallDb, WAVE1_PROJECT);
+    const r = smallEngine.execute('MATCH (n) RETURN n.name');
+    expect(r.rows.length).toBe(4);
+    expect(r.truncated).toBe(false);
+    smallDb.close();
   });
 });

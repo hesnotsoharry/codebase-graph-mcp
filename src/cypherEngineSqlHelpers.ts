@@ -3,7 +3,7 @@
  * to keep cypherEngine.ts under the 300-line ESLint limit.
  */
 
-import type { OrderByClause, WhereCondition } from './cypherEngineSupport';
+import type { NegatedExistenceCondition, OrderByClause, ScalarWhereCondition } from './cypherEngineSupport';
 import { PROP_TO_COLUMN } from './cypherEngineSupport';
 
 /**
@@ -38,7 +38,7 @@ export function buildOrderBy(orderBy: OrderByClause[]): string {
 }
 
 /** Build the right-hand side of a WHERE condition: a single placeholder or an IN-list. */
-export function buildWhereRhs(cond: WhereCondition): string {
+export function buildWhereRhs(cond: ScalarWhereCondition): string {
   if (cond.operator === 'IN') {
     const values = Array.isArray(cond.value) ? cond.value : [cond.value];
     if (values.length === 0) return '(NULL)'; // empty IN matches nothing
@@ -65,7 +65,7 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}/;
 const INDEXED_AT_PROPS = new Set(['indexed_at', 'indexedAt']);
 
 /** Coerce ISO date strings to epoch ms for indexed_at comparisons (stored as INTEGER). */
-function coerceIndexedAt(cond: WhereCondition, value: unknown): unknown {
+function coerceIndexedAt(cond: ScalarWhereCondition, value: unknown): unknown {
   if (!INDEXED_AT_PROPS.has(cond.property)) return value;
   if (typeof value === 'string' && ISO_DATE_RE.test(value)) {
     const ms = Date.parse(value);
@@ -75,7 +75,7 @@ function coerceIndexedAt(cond: WhereCondition, value: unknown): unknown {
 }
 
 /** Push the parameter value(s) for a WHERE condition (handles LIKE wrapping and IN). */
-export function pushWhereParam(params: unknown[], cond: WhereCondition): void {
+export function pushWhereParam(params: unknown[], cond: ScalarWhereCondition): void {
   if (cond.operator === 'IN') {
     const values = Array.isArray(cond.value) ? cond.value : [cond.value];
     for (const v of values) params.push(coerceIndexedAt(cond, v));
@@ -90,6 +90,22 @@ export function pushWhereParam(params: unknown[], cond: WhereCondition): void {
   } else {
     params.push(coerceIndexedAt(cond, cond.value));
   }
+}
+
+/**
+ * Build the NOT EXISTS subquery fragment for a negated existence condition.
+ * Returns a SQL fragment like:
+ *   NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type = 'CALLS')
+ *
+ * The fragment contains no bind parameters — the anchor id is referenced by column
+ * name (e.g. `n.id`) so it stays correlated with the outer query row.
+ */
+export function buildNotExistsSql(cond: NegatedExistenceCondition): string {
+  const col = cond.anchorRole === 'target' ? 'target_id' : 'source_id';
+  const typeFilter = cond.edgeType
+    ? ` AND type = '${sanitizeIdentifier(cond.edgeType)}'`
+    : '';
+  return `NOT EXISTS (SELECT 1 FROM edges WHERE ${col} = ${sanitizeIdentifier(cond.anchorAlias)}.id${typeFilter})`;
 }
 
 /** Safety: check if a query contains write operations. */

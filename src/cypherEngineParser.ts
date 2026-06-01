@@ -6,7 +6,7 @@
  * structured types defined in cypherEngineSupport.ts.
  */
 
-import type { OrderByClause, WhereCondition } from './cypherEngineSupport';
+import type { NegatedExistenceCondition, OrderByClause, WhereCondition } from './cypherEngineSupport';
 
 // ─── Clause extraction ────────────────────────────────────────────────────────
 //
@@ -17,26 +17,14 @@ import type { OrderByClause, WhereCondition } from './cypherEngineSupport';
 // Multiple conditions joined by AND / OR.
 // Anything that doesn't match these shapes throws — silent drop hides bugs.
 
-const SUPPORTED_FEATURES_HINT =
-  'Supported: MATCH, OPTIONAL MATCH, UNWIND [...] AS x, WHERE, RETURN, ORDER BY, LIMIT. ' +
-  'NOT supported: WITH (pipeline operator). See get_graph_schema for the full feature list.';
-
 /**
  * Throw a clear error if the query contains a top-level clause that the engine
- * does not support. Currently only WITH is permanently unsupported; OPTIONAL MATCH
- * and UNWIND are handled by dedicated parse paths.
+ * does not support. OPTIONAL MATCH and UNWIND are handled by dedicated parse paths.
+ * WITH is supported as a single-stage passthrough pipe (Wave 1 Phase 2).
  */
-export function assertNoUnsupportedClauses(query: string): void {
-  const upper = query.toUpperCase();
-  // Strip Cypher string operators "STARTS WITH" and "ENDS WITH" before checking for
-  // the bare WITH clause keyword, which would be a pipeline operator (not yet supported).
-  const stripped = upper.replace(/(?:STARTS|ENDS)\s+WITH/g, '__OP__');
-  if (/(?:^|\s)WITH\s/.test(stripped)) {
-    throw new Error(
-      `Cypher feature not supported by codebase-graph mini-engine: WITH (pipeline operator). ` +
-        SUPPORTED_FEATURES_HINT,
-    );
-  }
+export function assertNoUnsupportedClauses(_query: string): void {
+  // No permanently-unsupported top-level clauses at this time.
+  // Retain the function signature for callers; expansion point for future guards.
 }
 
 /** All clause keywords used as boundaries, longest-first so OPTIONAL MATCH beats MATCH. */
@@ -48,6 +36,7 @@ const CLAUSE_BOUNDARIES = [
   'RETURN',
   'LIMIT',
   'UNWIND',
+  'WITH',
 ];
 
 /** Find the start index of `keyword` in `upper`, ensuring it is word-bounded. */
@@ -59,7 +48,17 @@ function findKeywordIndex(upper: string, keyword: string): number {
     const before = idx === 0 || /\s/.test(upper[idx - 1]);
     const after =
       idx + keyword.length >= upper.length || /[\s(]/.test(upper[idx + keyword.length]);
-    if (before && after) return idx;
+    if (before && after) {
+      // Special case: skip WITH when it appears as part of STARTS WITH or ENDS WITH
+      if (keyword === 'WITH') {
+        const preceding = upper.slice(0, idx).trimEnd();
+        if (preceding.endsWith('STARTS') || preceding.endsWith('ENDS')) {
+          start = idx + 1;
+          continue;
+        }
+      }
+      return idx;
+    }
     start = idx + 1;
   }
   return -1;
@@ -114,6 +113,40 @@ export function extractUnwindClause(query: string): string | null {
   const boundary = nextBoundaryIn(tail, 'UNWIND');
   const content = query.slice(afterClause);
   return boundary === Infinity ? content.trim() : content.slice(0, boundary).trim();
+}
+
+/**
+ * Extract the WITH clause content, or null if absent.
+ * Strips "STARTS WITH" / "ENDS WITH" occurrences first so they don't trigger.
+ * The WITH clause carries variable names to pass through: `a, b` or `a AS x, b`.
+ */
+export function extractWithClause(query: string): string | null {
+  // Strip "STARTS WITH" / "ENDS WITH" so their WITH token isn't matched.
+  const sanitized = query.replace(/(?:STARTS|ENDS)\s+WITH/gi, '__STROP__');
+  const upper = sanitized.toUpperCase();
+  const idx = findKeywordIndex(upper, 'WITH');
+  if (idx === -1) return null;
+  const afterClause = idx + 'WITH'.length;
+  const tail = upper.slice(afterClause);
+  const boundary = nextBoundaryIn(tail, 'WITH');
+  const content = sanitized.slice(afterClause);
+  return boundary === Infinity ? content.trim() : content.slice(0, boundary).trim();
+}
+
+/**
+ * Parse WITH clause content into the list of alias names being passed through.
+ * Supports: `a`, `a, b`, `a AS x` (alias renaming is not supported; name-only is returned).
+ * Returns the identifiers so the engine can validate they match MATCH-bound aliases.
+ */
+export function parseWithAliases(withStr: string): string[] {
+  return withStr
+    .split(',')
+    .map((part) => {
+      // Strip any `AS <alias>` suffix — we only care about the source alias
+      const asMatch = /^(\w+)\s+AS\s+\w+$/i.exec(part.trim());
+      return asMatch ? asMatch[1] : part.trim().replace(/\s+.*/, '');
+    })
+    .filter(Boolean);
 }
 
 // ─── WHERE parsing ────────────────────────────────────────────────────────────
@@ -207,9 +240,86 @@ function parseScalarCondition(condStr: string): WhereCondition | null {
   return null;
 }
 
-/** Parse a single WHERE condition. Recognizes IN-form first, then scalar comparisons. */
+/**
+ * Parse a negated existence pattern: `NOT ()-[:TYPE]->(alias)` or `NOT (alias)-[:TYPE]->()`.
+ * Returns a NegatedExistenceCondition if the shape matches, null otherwise.
+ *
+ * Supported shapes (anchored at start, case-insensitive):
+ *   NOT ()-[:TYPE]->(alias)        — anchor is the target
+ *   NOT ()<-[:TYPE]-(alias)        — anchor is the source (inbound edge)
+ *   NOT (alias)-[:TYPE]->()        — anchor is the source
+ *   NOT (alias)<-[:TYPE]-()        — anchor is the target (inbound edge)
+ *   Without edge type:
+ *   NOT ()-->(alias) / NOT (alias)-->()   not supported currently (edge type required)
+ */
+function parseNegatedExistence(condStr: string): NegatedExistenceCondition | null {
+  const upper = condStr.trim().toUpperCase();
+  if (!upper.startsWith('NOT ')) return null;
+
+  const body = condStr.trim().slice(4).trim();
+
+  // Pattern: NOT ()-[:TYPE]->(alias)  — anchor = target
+  const notTargetOut =
+    // eslint-disable-next-line security/detect-unsafe-regex -- bounded quantifiers
+    /^\(\s*\)\s*-\[\s*:?(\w+)?\s*\]\s*->\s*\(\s*(\w+)\s*\)$/.exec(body);
+  if (notTargetOut) {
+    return {
+      kind: 'negated_existence',
+      anchorAlias: notTargetOut[2],
+      anchorRole: 'target',
+      edgeType: notTargetOut[1] || null,
+      conjunction: null,
+    };
+  }
+
+  // Pattern: NOT (alias)-[:TYPE]->()  — anchor = source
+  const notSourceOut =
+    // eslint-disable-next-line security/detect-unsafe-regex -- bounded quantifiers
+    /^\(\s*(\w+)\s*\)\s*-\[\s*:?(\w+)?\s*\]\s*->\s*\(\s*\)$/.exec(body);
+  if (notSourceOut) {
+    return {
+      kind: 'negated_existence',
+      anchorAlias: notSourceOut[1],
+      anchorRole: 'source',
+      edgeType: notSourceOut[2] || null,
+      conjunction: null,
+    };
+  }
+
+  // Pattern: NOT ()<-[:TYPE]-(alias)  — anchor = source
+  const notSourceIn =
+    // eslint-disable-next-line security/detect-unsafe-regex -- bounded quantifiers
+    /^\(\s*\)\s*<-\[\s*:?(\w+)?\s*\]-\s*\(\s*(\w+)\s*\)$/.exec(body);
+  if (notSourceIn) {
+    return {
+      kind: 'negated_existence',
+      anchorAlias: notSourceIn[2],
+      anchorRole: 'source',
+      edgeType: notSourceIn[1] || null,
+      conjunction: null,
+    };
+  }
+
+  // Pattern: NOT (alias)<-[:TYPE]-()  — anchor = target
+  const notTargetIn =
+    // eslint-disable-next-line security/detect-unsafe-regex -- bounded quantifiers
+    /^\(\s*(\w+)\s*\)\s*<-\[\s*:?(\w+)?\s*\]-\s*\(\s*\)$/.exec(body);
+  if (notTargetIn) {
+    return {
+      kind: 'negated_existence',
+      anchorAlias: notTargetIn[1],
+      anchorRole: 'target',
+      edgeType: notTargetIn[2] || null,
+      conjunction: null,
+    };
+  }
+
+  return null;
+}
+
+/** Parse a single WHERE condition. Recognizes IN-form first, then scalar comparisons, then negated existence. */
 export function parseSingleCondition(condStr: string): WhereCondition | null {
-  return parseInCondition(condStr) ?? parseScalarCondition(condStr);
+  return parseInCondition(condStr) ?? parseScalarCondition(condStr) ?? parseNegatedExistence(condStr);
 }
 
 type WherePart = { condition: string; conjunction: 'AND' | 'OR' | null };

@@ -229,7 +229,7 @@ export class IndexingPipeline {
     progress.filesTotal = allFiles.length;
     const isIncremental = options.incremental !== false;
     const { filesToProcess, isIncrementalRun } = await this.resolveFilesToProcess(
-      isIncremental, projectName, allFiles, options.changedPaths,
+      isIncremental, projectName, allFiles, options.changedPaths, options.onFilePruned,
     );
     this.db.upsertProject({
       name: projectName,
@@ -331,8 +331,15 @@ export class IndexingPipeline {
     }
   }
 
-  private pruneDeletedFiles(projectName: string, allFiles: DiscoveredFile[]): void {
+  private pruneDeletedFiles(
+    projectName: string,
+    allFiles: DiscoveredFile[],
+    onFilePruned?: (absolutePath: string) => void,
+  ): void {
     const diskPaths = new Set(allFiles.map((f) => f.relativePath));
+    // Build a rel→absolute map from the current allFiles snapshot so we can
+    // fire onFilePruned with the absolute path (needed for ts-morph forget()).
+    const relToAbs = new Map(allFiles.map((f) => [f.relativePath, f.absolutePath]));
     for (const hash of this.db.getAllFileHashes(projectName)) {
       if (!diskPaths.has(hash.rel_path)) {
         // Wrap each file's two writes in one transaction so a mid-loop crash
@@ -342,6 +349,12 @@ export class IndexingPipeline {
           this.db.deleteNodesByFile(projectName, hash.rel_path);
           this.db.deleteFileHash(projectName, hash.rel_path);
         });
+        // Notify the caller (e.g. worker) that this file was pruned. (D7)
+        // Absolute path: prefer the allFiles map (file may already be gone from
+        // disk, so we reconstruct from the root). Falls back to rel_path if the
+        // file was somehow absent from the discovered list.
+        const absolutePath = relToAbs.get(hash.rel_path);
+        if (absolutePath) onFilePruned?.(absolutePath);
       }
     }
   }
@@ -351,6 +364,7 @@ export class IndexingPipeline {
     projectName: string,
     allFiles: DiscoveredFile[],
     changedPaths?: string[],
+    onFilePruned?: (absolutePath: string) => void,
   ): Promise<{ filesToProcess: DiscoveredFile[]; isIncrementalRun: boolean }> {
     if (isIncremental && this.db.getProject(projectName)) {
       return resolveIncrementalFiles({
@@ -358,8 +372,9 @@ export class IndexingPipeline {
         projectName,
         allFiles,
         changedPaths,
-        pruneDeleted: (files) => this.pruneDeletedFiles(projectName, files),
+        pruneDeleted: (files) => this.pruneDeletedFiles(projectName, files, onFilePruned),
         deleteNodes: (rel) => this.db.deleteNodesByFile(projectName, rel),
+        onFilePruned,
       });
     }
 

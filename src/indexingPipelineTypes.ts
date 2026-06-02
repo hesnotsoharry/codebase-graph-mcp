@@ -25,6 +25,24 @@ export interface IndexingOptions {
    * The hash check is still applied (watcher events can be spurious).
    */
   changedPaths?: string[];
+  /**
+   * CPU escape-valve: skip the ts-morph type-aware enrichment pass entirely.
+   * When true, `getOrInitTsMorphProject` returns null and the enrichment pass
+   * is a no-op. Set by the operator when the dev box cannot afford the
+   * ts-morph language-service heap overhead. (D3)
+   */
+  skipTsEnrichment?: boolean;
+  /**
+   * Called for each file whose nodes are pruned from the graph during an
+   * incremental run (file deleted from disk). Receives the absolute path.
+   * Mirrors the internal deleteNodes callback. (D7)
+   *
+   * NOTE: Not serialisable across the worker IPC boundary (function). The
+   * worker supplies this locally — it is NOT part of IndexRequestOptions.
+   * Omitted from IndexRequestOptions automatically because it is not in
+   * the set of JSON-serialisable fields (workers reconstruct it locally).
+   */
+  onFilePruned?: (absolutePath: string) => void;
 }
 
 // ─── Progress reporting ───────────────────────────────────────────────────────

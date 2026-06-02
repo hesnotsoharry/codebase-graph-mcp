@@ -10,9 +10,13 @@ import type { IndexingOptions, IndexingProgress, IndexingResult } from './indexi
 
 // ── Main → Worker ────────────────────────────────────────────────────────────
 
-/** Stripped options sent across the thread boundary (onProgress omitted — it is
- *  a function and cannot be serialised; progress comes back via WorkerProgress). */
-export type IndexRequestOptions = Omit<IndexingOptions, 'onProgress'>;
+/**
+ * Stripped options sent across the thread boundary.
+ * Functions are omitted — they cannot be serialised to worker posts:
+ *   - `onProgress` → progress comes back via WorkerProgress messages.
+ *   - `onFilePruned` → worker supplies this locally (D7).
+ */
+export type IndexRequestOptions = Omit<IndexingOptions, 'onProgress' | 'onFilePruned'>;
 
 export interface IndexRepositoryRequest {
   type: 'indexRepository';

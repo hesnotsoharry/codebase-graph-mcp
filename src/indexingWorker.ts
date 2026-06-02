@@ -10,6 +10,7 @@
  */
 
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import { parentPort, workerData } from 'worker_threads';
 
@@ -26,6 +27,7 @@ import type {
   LaunchDiffRequest,
 } from './indexingWorkerTypes';
 import { TreeSitterParser } from './treeSitterParser';
+import { Project } from 'ts-morph';
 
 // ── Worker-local singletons ───────────────────────────────────────────────────
 
@@ -33,6 +35,67 @@ let db: GraphDatabase | null = null;
 let parser: TreeSitterParser | null = null;
 let pipeline: IndexingPipeline | null = null;
 let disposed = false;
+
+// ── ts-morph Project singleton (D2 + D4) ─────────────────────────────────────
+
+/** Cached ts-morph Project instance. Created at most once per worker lifetime. */
+let tsMorphProject: Project | null = null;
+/**
+ * Set to true if the ts-morph Project constructor threw on first call.
+ * Prevents retry on subsequent incremental runs (D4).
+ */
+let tsMorphProjectFailed = false;
+/**
+ * Set to true if no tsconfig.json exists at projectRoot — non-TS project.
+ * Terminal condition for worker lifetime, distinct from constructor failure (D4).
+ */
+let tsMorphProjectUnavailable = false;
+
+/**
+ * Return the worker-local ts-morph Project singleton, or null when:
+ *   (a) skipTsEnrichment is set — CPU escape-valve (D3)
+ *   (b) no tsconfig.json exists at projectRoot — non-TS project
+ *   (c) a prior construction attempt threw — tsMorphProjectFailed guard (D4)
+ *
+ * On first real call, constructs `new Project({ tsConfigFilePath })` and
+ * caches it. If the constructor throws: sets tsMorphProjectFailed, logs a
+ * warning, and returns null without retrying on later runs.
+ */
+function getOrInitTsMorphProject(
+  projectRoot: string,
+  skipTsEnrichment?: boolean,
+): Project | null {
+  if (skipTsEnrichment) return null;
+  if (tsMorphProjectFailed) return null;
+  if (tsMorphProjectUnavailable) return null;
+  if (tsMorphProject) return tsMorphProject;
+
+  const tsConfigFilePath = path.join(projectRoot, 'tsconfig.json');
+  // Check synchronously — fs.existsSync is fine in worker context and avoids
+  // async complexity in what is otherwise a synchronous init path.
+  // We use a try/catch on the constructor itself as the canonical guard (D4),
+  // so a quick existence check here handles the common non-TS project case
+  // without incurring constructor overhead.
+  try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- projectRoot is trusted
+    fsSync.accessSync(tsConfigFilePath);
+  } catch {
+    // No tsconfig.json — non-TS project, skip silently (D4)
+    tsMorphProjectUnavailable = true;
+    return null;
+  }
+
+  try {
+    tsMorphProject = new Project({ tsConfigFilePath });
+    log.info('[trace:worker.tsMorph] Project initialised tsconfig=%s', tsConfigFilePath);
+    return tsMorphProject;
+  } catch (err) {
+    tsMorphProjectFailed = true;
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn('[trace:worker.tsMorph] Project init failed — enrichment disabled: %s', msg);
+    return null;
+  }
+}
 
 /**
  * Resolve the SQLite path the worker should open. Wave 53k follow-up
@@ -70,6 +133,10 @@ function disposeResources(): void {
   parser = null;
   db = null;
   pipeline = null;
+  // Release the ts-morph language-service heap on teardown (D2).
+  tsMorphProject = null;
+  tsMorphProjectFailed = false;
+  tsMorphProjectUnavailable = false;
 }
 
 // ── Messaging helpers ─────────────────────────────────────────────────────────
@@ -91,7 +158,14 @@ async function handleIndexRepository(req: IndexRepositoryRequest): Promise<void>
     post({ type: 'progress', requestId: req.requestId, progress });
   };
 
-  const result = await pl.index({ ...req.options, onProgress });
+  // Wire the ts-morph forget() seam: when a file is pruned from the graph,
+  // release its AST from the language-service heap. (D7)
+  const onFilePruned = (absolutePath: string): void => {
+    const project = getOrInitTsMorphProject(req.options.projectRoot, req.options.skipTsEnrichment);
+    project?.getSourceFile(absolutePath)?.forget();
+  };
+
+  const result = await pl.index({ ...req.options, onProgress, onFilePruned });
   post({ type: 'result', requestId: req.requestId, result });
 }
 

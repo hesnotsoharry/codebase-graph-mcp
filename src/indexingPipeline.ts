@@ -269,12 +269,19 @@ export class IndexingPipeline {
     const { filesToProcess, isIncrementalRun } = await this.resolveFilesToProcess(
       isIncremental, projectName, allFiles, options.changedPaths, options.onFilePruned,
     );
+    // Preserve the last-known-good node/edge counts for existing projects.
+    // Zeroing them here poisoned the cache on every incremental run — a no-op
+    // fast-path that followed would return without calling finalizeIndex, leaving
+    // the cache stuck at 0 while the per-label breakdown (computed live) was correct.
+    // A brand-new project still starts at 0; a real index pass still overwrites with
+    // fresh live counts via finalizeIndex at the end of runIndex.
+    const existing = this.db.getProject(projectName);
     this.db.upsertProject({
       name: projectName,
       root_path: options.projectRoot,
       indexed_at: Date.now(),
-      node_count: 0,
-      edge_count: 0,
+      node_count: existing?.node_count ?? 0,
+      edge_count: existing?.edge_count ?? 0,
     });
     return { allFiles, filesToProcess, isIncrementalRun };
   }

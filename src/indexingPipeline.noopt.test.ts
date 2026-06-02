@@ -50,6 +50,87 @@ vi.mock('./passes/testDetectPass', () => ({
   testDetectPass: vi.fn(),
 }));
 
+describe('IndexingPipeline — no-op fast-path (cache-preservation regression)', () => {
+  it('preserves existing node_count/edge_count in the cache after a no-op incremental run', async () => {
+    // Regression guard for the bug where discoverAndResolve zeroed node_count/edge_count
+    // before every index run. A no-op fast-path (0 changed files) would then exit without
+    // calling finalizeIndex, leaving the cache permanently stuck at 0.
+    //
+    // Fix: discoverAndResolve reads the existing project row and preserves its counts.
+    // This test verifies that upsertProject is NOT called with 0/0 when a prior non-zero
+    // count exists, and that the second upsertProject call (in discoverAndResolve) carries
+    // the preserved values.
+    const { resolveIncrementalFiles, discoverFiles } = await import('./indexingPipelineIncremental');
+
+    const EXISTING_NODE_COUNT = 42;
+    const EXISTING_EDGE_COUNT = 17;
+
+    const existingProject = {
+      name: 'test-proj',
+      root_path: '/proj',
+      indexed_at: Date.now() - 1000,
+      node_count: EXISTING_NODE_COUNT,
+      edge_count: EXISTING_EDGE_COUNT,
+    };
+
+    const upsertCalls: Array<{ node_count: number; edge_count: number }> = [];
+
+    const mockDb = {
+      // Returns the pre-existing project with non-zero counts
+      getProject: vi.fn().mockReturnValue(existingProject),
+      upsertProject: vi.fn((args) => {
+        upsertCalls.push({ node_count: args.node_count, edge_count: args.edge_count });
+      }),
+      deleteProject: vi.fn(),
+      getFileHash: vi.fn(),
+      upsertFileHash: vi.fn(),
+      deleteFileHash: vi.fn(),
+      getAllFileHashes: vi.fn().mockReturnValue([]),
+      deleteNodesByFile: vi.fn(),
+      transaction: vi.fn((fn) => fn()),
+      getNodeCount: vi.fn().mockReturnValue(EXISTING_NODE_COUNT),
+      getEdgeCount: vi.fn().mockReturnValue(EXISTING_EDGE_COUNT),
+      setGraphMetadata: vi.fn(),
+    };
+
+    const mockParser = {};
+
+    const allFiles: DiscoveredFile[] = [
+      {
+        absolutePath: '/proj/src/a.ts',
+        relativePath: 'src/a.ts',
+        extension: 'ts',
+        sizeBytes: 100,
+        mtimeMs: 1_000_000,
+      },
+    ];
+
+    vi.mocked(discoverFiles).mockResolvedValue(allFiles);
+    vi.mocked(resolveIncrementalFiles).mockResolvedValue({
+      filesToProcess: [], // No files changed — triggers the no-op fast-path
+      isIncrementalRun: true,
+    });
+
+    const pipeline = new IndexingPipeline(mockDb as never, mockParser as never);
+
+    const options: IndexingOptions = {
+      projectRoot: '/proj',
+      projectName: 'test-proj',
+      incremental: true,
+    };
+
+    await pipeline.index(options);
+
+    // The marker upsert in discoverAndResolve must have been called (once — the no-op
+    // path does NOT call finalizeIndex, so there's exactly 1 upsertProject call).
+    expect(upsertCalls).toHaveLength(1);
+
+    // That single call must carry the preserved counts, NOT zeros.
+    expect(upsertCalls[0].node_count).toBe(EXISTING_NODE_COUNT);
+    expect(upsertCalls[0].edge_count).toBe(EXISTING_EDGE_COUNT);
+  });
+});
+
 describe('IndexingPipeline — no-op fast-path', () => {
   it('returns buildNoOpResult when filesToProcess is empty and isIncrementalRun is true', async () => {
     const { resolveIncrementalFiles } = await import('./indexingPipelineIncremental');

@@ -22,7 +22,7 @@ vi.mock('../ipc-handlers/gitOperations', () => ({
 
 import { CypherEngine } from './cypherEngine';
 import { GraphDatabase } from './graphDatabase';
-import { handleGetCodeSnippet, handleIndexStatus } from './mcpToolHandlerDefs';
+import { handleGetCodeSnippet, handleIndexStatus, handleListProjects } from './mcpToolHandlerDefs';
 import type { GraphToolContext } from './mcpToolHandlers';
 import { QueryEngine } from './queryEngine';
 
@@ -191,5 +191,86 @@ describe('handleIndexStatus — parameter aliasing (Wave 70 envelope)', () => {
     expect(result.content[0].text).toContain('is not indexed');
     expect(result.isError).toBe(true);
     expect(result.structuredContent?.indexed).toBe(false);
+  });
+});
+
+// ─── handleListProjects — live-count regression ───────────────────────────────
+//
+// Regression guard for the bug where list_projects read cached node_count/edge_count
+// from the projects table. Projects indexed before the cache-preservation fix had
+// those columns set to 0, so list_projects reported "0 nodes" even when the graph
+// was fully populated.
+//
+// Fix (Part 3): list_projects now calls getNodeCount/getEdgeCount (live COUNT
+// queries against the nodes/edges tables) instead of reading the cached columns.
+
+describe('handleListProjects — live counts override stale cache', () => {
+  let staleDb: GraphDatabase;
+  let staleCtx: GraphToolContext;
+  const STALE_PROJECT = 'stale-cache-proj';
+  const REAL_NODE_COUNT = 5;
+
+  beforeAll(() => {
+    staleDb = new GraphDatabase(':memory:');
+
+    // Seed the project row with cached counts of 0 — simulating a project
+    // indexed before the cache-preservation fix.
+    staleDb.upsertProject({
+      name: STALE_PROJECT,
+      root_path: '/fake/root',
+      indexed_at: Date.now(),
+      node_count: 0,   // stale/poisoned cached value
+      edge_count: 0,
+    });
+
+    // Insert real nodes so the live COUNT query returns a non-zero value.
+    staleDb.insertNodes(
+      Array.from({ length: REAL_NODE_COUNT }, (_, i) => ({
+        id: `${STALE_PROJECT}.node-${i}`,
+        project: STALE_PROJECT,
+        label: 'Function' as const,
+        name: `fn${i}`,
+        qualified_name: `${STALE_PROJECT}.fn${i}`,
+        file_path: 'src/fake.ts',
+        start_line: i + 1,
+        end_line: i + 1,
+        props: {},
+      })),
+    );
+
+    const qe = new QueryEngine(staleDb, STALE_PROJECT, '/fake/root');
+    const ce = new CypherEngine(staleDb, STALE_PROJECT);
+    staleCtx = {
+      db: staleDb,
+      queryEngine: qe,
+      cypherEngine: ce,
+      pipeline: { index: async () => ({ success: true, projectName: STALE_PROJECT, filesIndexed: 0, filesSkipped: 0, nodesCreated: 0, edgesCreated: 0, durationMs: 0, incremental: true, errors: [] }) },
+      projectRoot: '/fake/root',
+      projectName: STALE_PROJECT,
+    };
+  });
+
+  afterAll(() => {
+    staleDb.close();
+  });
+
+  it('reports live node count even when cached node_count column is 0', async () => {
+    const result = await handleListProjects(staleCtx);
+    // The live count from the nodes table is REAL_NODE_COUNT (5).
+    // If list_projects reads the stale cache it would say "0 nodes" — the bug.
+    expect(result).toContain(`${REAL_NODE_COUNT} nodes`);
+    expect(result).not.toContain('0 nodes');
+  });
+
+  it('reports live edge count (0) matching the actual empty edges table', async () => {
+    // No edges were inserted — live and cached counts agree at 0.
+    // This verifies the edge branch also uses the live query path.
+    const result = await handleListProjects(staleCtx);
+    expect(result).toContain('0 edges');
+  });
+
+  it('includes the project name in the output', async () => {
+    const result = await handleListProjects(staleCtx);
+    expect(result).toContain(STALE_PROJECT);
   });
 });

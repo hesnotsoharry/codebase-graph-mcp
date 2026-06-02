@@ -186,11 +186,11 @@ async function populateDbFromFixture(): Promise<{
   // Call resolution pass — inserts CALLS edges
   callResolutionPass(db, PROJECT_NAME, parsed, { chunkSize: 500 });
 
-  // Note: we intentionally do NOT call upsertProject() here to update node/edge
-  // counts, because INSERT OR REPLACE would cascade-delete all nodes (the bug
-  // documented at the top of this file). The project row from the initial
-  // upsertProject() has node_count = 0 but getNodeCount() reads directly from
-  // the nodes table and returns the correct value.
+  // Note: we intentionally do NOT call finalizeIndex/upsertProject() here to
+  // update node/edge counts after the passes. This helper is used only for the
+  // query-assertion tests (which test the compat shim against per-pass state),
+  // not for pipeline-level cached-count assertions. The full pipeline path is
+  // exercised separately via pipeline.index() / pipelineDb.
 
   return { allFiles, indexedFiles: parsed };
 }
@@ -344,9 +344,12 @@ describe('getStatus', () => {
   });
 
   it('DB contains nodes (direct count is positive)', () => {
-    // Note: getStatus().nodeCount reads the cached node_count from the projects
-    // table (set to 0 to avoid the finalizeIndex CASCADE bug — see file header).
-    // Use the live DB count to verify nodes were actually indexed.
+    // Verify nodes were actually indexed. The live getNodeCount() queries the
+    // nodes table directly — independent of the cached project.node_count.
+    // (Historical note: a previous workaround here used getNodeCount() because
+    // the cached count was always 0 due to the INSERT OR REPLACE cascade-delete
+    // bug. That bug is fixed — upsertProject now uses ON CONFLICT DO UPDATE —
+    // and the no-op path now preserves the cached count instead of zeroing it.)
     expect(db.getNodeCount(PROJECT_NAME)).toBeGreaterThan(0);
   });
 

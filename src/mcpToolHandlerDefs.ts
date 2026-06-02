@@ -52,10 +52,16 @@ export async function handleListProjects(ctx: GraphToolContext): Promise<string>
     if (projects.length === 0) return 'No projects indexed yet.';
     return truncate(
       projects
-        .map(
-          (p) =>
-            `${p.name}: ${p.node_count} nodes, ${p.edge_count} edges (indexed ${new Date(p.indexed_at).toISOString()})`,
-        )
+        .map((p) => {
+          // Read live counts from the nodes/edges tables instead of the cached
+          // project.node_count/edge_count columns. Projects indexed before the
+          // cache-preservation fix (Part 1) have node_count=0 in the projects
+          // table and will keep showing 0 until a re-index. Live counts are
+          // always correct and require no re-index to show the right value.
+          const liveNodes = ctx.db.getNodeCount(p.name);
+          const liveEdges = ctx.db.getEdgeCount(p.name);
+          return `${p.name}: ${liveNodes} nodes, ${liveEdges} edges (indexed ${new Date(p.indexed_at).toISOString()})`;
+        })
         .join('\n'),
     );
   } catch (err) {

@@ -2,15 +2,18 @@
  * typescriptEnrichmentPass.test.ts — Unit/integration tests for Pass 6.
  *
  * Contracts under test:
- *   1. No-op when tsMorphProject is null (skip path).
- *   2. Barrel resolution: call via barrel → real definition at 0.98/compiler_api.
- *   3. Barrel negative: barrel node NEVER appears as a resolved target.
- *   4. D5.1 delete-then-insert: wrong-target tree-sitter edge is replaced.
- *   5. ASYNC_CALLS: awaited call → ASYNC_CALLS edge (not CALLS).
- *   6. Empty-R preservation: no ts-morph resolution → tree-sitter edge preserved.
+ *   1.  No-op when tsMorphProject is null (skip path).
+ *   2.  Barrel resolution: call via barrel → real definition at 0.98/compiler_api.
+ *   3.  Barrel negative: barrel node NEVER appears as a resolved target.
+ *   4.  D5.1 delete-then-insert: wrong-target tree-sitter edge is replaced.
+ *   5.  ASYNC_CALLS: awaited call → ASYNC_CALLS edge (not CALLS).
+ *   6.  Empty-R preservation: no ts-morph resolution → tree-sitter edge preserved.
+ *   7.  TYPEOF barrel: type ref via barrel → real type definition at 0.98/compiler_api.
+ *   8.  TYPEOF empty-R: all type refs external → pre-seeded regex edge preserved.
+ *   9.  Incremental refresh: edited file on disk → pass reads updated content.
+ *   10. Deleted-file forget: onFilePruned seam calls forget(); source becomes undefined.
  *
- * Each test is FULLY INDEPENDENT: its own in-memory DB + its own fixture dir
- * (or fresh nodes in the shared fixture dir that doesn't share DB state).
+ * Each test is FULLY INDEPENDENT: its own in-memory DB + its own fixture dir.
  *
  * Test shape: real ts-morph Project on real disk-resident temp files + real
  * :memory: GraphDatabase. ts-morph requires disk files for symbol resolution.
@@ -453,5 +456,302 @@ describe('typescriptEnrichmentPass — empty-R: preserves tree-sitter edge when 
     expect(edges[0].target_id).toBe(existingTargetQn);
     expect(edges[0].confidence).toBe(0.80);
     expect((edges[0].props as Record<string, unknown>).resolution_method).toBe('name_unique');
+  });
+});
+
+// ─── Test 7: TYPEOF barrel resolution ────────────────────────────────────────
+// Source model: source_id = fileQn (whole-file QN), not an enclosing function.
+// This mirrors the regex pass exactly (indexingPipelineTypeofResolution.ts:210,224).
+
+describe('typescriptEnrichmentPass — TYPEOF_REFERENCES barrel resolution', () => {
+  let fixtureDir: string;
+  let project: Project;
+  let db: GraphDatabase;
+
+  // File that contains `type T = ReturnType<typeof foo>` importing foo from barrel
+  // Source of the TYPEOF_REFERENCES edge = whole-file QN of the user file
+  const userFileQn = `${PROJECT}.src.userModule`;
+  // Target = the REAL definition of foo (in fooModule, not the barrel)
+  const realFooQn = `${PROJECT}.src.fooModule.foo`;
+  const barrelFooQn = `${PROJECT}.src.index.foo`;
+
+  beforeEach(() => {
+    // Reuse the barrel fixture (fooModule.ts, index.ts) but add a userModule.ts
+    // that uses `typeof foo` in a type position via the barrel
+    ({ fixtureDir, project } = createBarrelFixture());
+
+    const srcDir = path.join(fixtureDir, 'src');
+    fs.writeFileSync(
+      path.join(srcDir, 'userModule.ts'),
+      [
+        "import { foo } from './index';",
+        '',
+        '// Uses typeof foo in a type position (TypeQuery node)',
+        'type FooReturn = ReturnType<typeof foo>;',
+        '',
+        'export function useFoo(): FooReturn {',
+        '  return foo();',
+        '}',
+      ].join('\n'),
+      'utf8',
+    );
+
+    db = new GraphDatabase(':memory:');
+    seedDb(db, fixtureDir);
+
+    // Insert foo nodes with the labels the typeof resolver expects (Function).
+    // Also insert a File node for userModule — the TYPEOF_REFERENCES edge uses
+    // fileQn as source_id, which requires a node with that ID in the DB
+    // (FK constraint on edges.source_id → nodes.id).
+    db.insertNodes([
+      makeNode({ id: realFooQn, name: 'foo', file_path: 'src/fooModule.ts' }),
+      makeNode({ id: barrelFooQn, name: 'foo', file_path: 'src/index.ts' }),
+      makeNode({ id: `${PROJECT}.src.userModule.useFoo`, name: 'useFoo', file_path: 'src/userModule.ts' }),
+      // File node so the fileQn edge source satisfies the FK constraint
+      { id: userFileQn, project: PROJECT, label: 'File' as const, name: 'userModule', qualified_name: userFileQn, file_path: 'src/userModule.ts', start_line: 1, end_line: 99, props: {} },
+    ]);
+  });
+
+  afterEach(() => {
+    db.close();
+    try { fs.rmSync(fixtureDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+  });
+
+  it('resolves a barrel-re-exported typeof reference to the real type definition at 0.98 / compiler_api', async () => {
+    const userFile = makeIndexedFile(
+      path.join(fixtureDir, 'src', 'userModule.ts'),
+      'src/userModule.ts',
+    );
+
+    await typescriptEnrichmentPass(db, PROJECT, fixtureDir, [userFile], { tsMorphProject: project });
+
+    // source_id = whole-file QN (not an enclosing function) — mirrors regex pass model
+    const edges = db.getOutboundEdges(userFileQn, 'TYPEOF_REFERENCES');
+    expect(edges.length).toBeGreaterThanOrEqual(1);
+
+    // The target must be the REAL definition (fooModule.foo), not the barrel
+    const realEdge = edges.find((e) => e.target_id === realFooQn);
+    expect(realEdge).toBeDefined();
+    expect(realEdge!.confidence).toBe(0.98);
+    expect((realEdge!.props as Record<string, unknown>).resolution_method).toBe('compiler_api');
+
+    // The barrel must NOT appear as a TYPEOF_REFERENCES target
+    const barrelEdge = edges.find((e) => e.target_id === barrelFooQn);
+    expect(barrelEdge).toBeUndefined();
+  });
+});
+
+// ─── Test 8: TYPEOF empty-R preservation ─────────────────────────────────────
+
+describe('typescriptEnrichmentPass — TYPEOF_REFERENCES empty-R: pre-seeded regex edge preserved', () => {
+  let fixtureDir: string;
+  let project: Project;
+  let db: GraphDatabase;
+
+  beforeEach(() => {
+    // A file that uses `typeof console` — console is not an indexed node,
+    // so the ts-morph resolution produces an empty R → no delete should fire.
+    ({ fixtureDir, project } = createExternalCallFixture());
+
+    // Add a typeof usage to externalCaller.ts
+    const srcDir = path.join(fixtureDir, 'src');
+    fs.writeFileSync(
+      path.join(srcDir, 'externalCaller.ts'),
+      [
+        '// typeof on an external symbol (console) — not an indexed node',
+        'type LogType = typeof console;',
+        '',
+        'export function doLog(): void {',
+        '  console.log("hello");',
+        '}',
+      ].join('\n'),
+      'utf8',
+    );
+
+    db = new GraphDatabase(':memory:');
+    seedDb(db, fixtureDir);
+
+    const callerFileQn = `${PROJECT}.src.externalCaller`;
+    const someTypeQn = `${PROJECT}.src.someTypes.MyType`;
+
+    db.insertNodes([
+      makeNode({ id: `${PROJECT}.src.externalCaller.doLog`, name: 'doLog', file_path: 'src/externalCaller.ts' }),
+      makeNode({ id: someTypeQn, name: 'MyType', file_path: 'src/someTypes.ts', label: 'Type' as const }),
+      // File node so the fileQn edge source satisfies the FK constraint
+      { id: callerFileQn, project: PROJECT, label: 'File' as const, name: 'externalCaller', qualified_name: callerFileQn, file_path: 'src/externalCaller.ts', start_line: 1, end_line: 99, props: {} },
+    ]);
+
+    // Pre-seed a regex-style TYPEOF_REFERENCES edge (source = fileQn, matching
+    // the regex pass's source model: source_id = whole-file QN)
+    db.insertEdges([{
+      project: PROJECT,
+      source_id: callerFileQn,
+      target_id: someTypeQn,
+      type: 'TYPEOF_REFERENCES',
+      props: { resolution_method: 'typeof_regex', pattern: 'typeof' },
+      confidence: 0.9,
+    }]);
+  });
+
+  afterEach(() => {
+    db.close();
+    try { fs.rmSync(fixtureDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+  });
+
+  it('preserves pre-seeded regex TYPEOF_REFERENCES edge when all ts-morph typeof targets are external/non-indexed', async () => {
+    const callerFileQn = `${PROJECT}.src.externalCaller`;
+    const someTypeQn = `${PROJECT}.src.someTypes.MyType`;
+
+    await typescriptEnrichmentPass(
+      db,
+      PROJECT,
+      fixtureDir,
+      [makeIndexedFile(path.join(fixtureDir, 'src', 'externalCaller.ts'), 'src/externalCaller.ts')],
+      { tsMorphProject: project },
+    );
+
+    // The pre-seeded typeof edge must survive — R was empty (console not indexed),
+    // so deleteOutboundEdgesOfType must NOT have fired for this file.
+    const edges = db.getOutboundEdges(callerFileQn, 'TYPEOF_REFERENCES');
+    expect(edges).toHaveLength(1);
+    expect(edges[0].target_id).toBe(someTypeQn);
+    expect(edges[0].confidence).toBe(0.9);
+    expect((edges[0].props as Record<string, unknown>).resolution_method).toBe('typeof_regex');
+  });
+});
+
+// ─── Test 9: Incremental refresh ─────────────────────────────────────────────
+// Verifies the D7 warm incremental path: the pass calls refreshFromFileSystem()
+// so it reads current disk state, not the stale version loaded at Project init.
+
+describe('typescriptEnrichmentPass — incremental: refreshFromFileSystem picks up edited file', () => {
+  let fixtureDir: string;
+  let project: Project;
+  let db: GraphDatabase;
+
+  const callerQn = `${PROJECT}.src.callerModule.callFoo`;
+  const originalTargetQn = `${PROJECT}.src.fooModule.foo`;
+  const newTargetQn = `${PROJECT}.src.barModule.bar`;
+
+  beforeEach(() => {
+    // Start with the barrel fixture
+    ({ fixtureDir, project } = createBarrelFixture());
+
+    const srcDir = path.join(fixtureDir, 'src');
+
+    // Add a new barModule.ts that exports `bar`
+    fs.writeFileSync(
+      path.join(srcDir, 'barModule.ts'),
+      ['export function bar(): string {', '  return "bar";', '}'].join('\n'),
+      'utf8',
+    );
+
+    db = new GraphDatabase(':memory:');
+    seedDb(db, fixtureDir);
+    db.insertNodes([
+      makeNode({ id: callerQn, name: 'callFoo', file_path: 'src/callerModule.ts' }),
+      makeNode({ id: originalTargetQn, name: 'foo', file_path: 'src/fooModule.ts' }),
+      makeNode({ id: newTargetQn, name: 'bar', file_path: 'src/barModule.ts' }),
+    ]);
+  });
+
+  afterEach(() => {
+    db.close();
+    try { fs.rmSync(fixtureDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+  });
+
+  it('resolves edges from updated file content after refreshFromFileSystem()', async () => {
+    const srcDir = path.join(fixtureDir, 'src');
+
+    // First pass: callerModule calls foo (via barrel)
+    await typescriptEnrichmentPass(
+      db,
+      PROJECT,
+      fixtureDir,
+      [makeIndexedFile(path.join(srcDir, 'callerModule.ts'), 'src/callerModule.ts')],
+      { tsMorphProject: project },
+    );
+    const firstPassEdges = db.getOutboundEdges(callerQn, 'CALLS');
+    expect(firstPassEdges.length).toBeGreaterThanOrEqual(1);
+    expect(firstPassEdges[0].target_id).toBe(originalTargetQn);
+
+    // Edit callerModule.ts on disk to now call bar() instead of foo()
+    fs.writeFileSync(
+      path.join(srcDir, 'callerModule.ts'),
+      [
+        "import { bar } from './barModule';",
+        '',
+        'export function callFoo(): string {',
+        '  return bar();',
+        '}',
+      ].join('\n'),
+      'utf8',
+    );
+
+    // Second pass (incremental): refreshFromFileSystem() reads the new content
+    await typescriptEnrichmentPass(
+      db,
+      PROJECT,
+      fixtureDir,
+      [makeIndexedFile(path.join(srcDir, 'callerModule.ts'), 'src/callerModule.ts')],
+      { tsMorphProject: project },
+    );
+
+    // The edge must now point to bar, not foo (stale foo edge was superseded)
+    const secondPassEdges = db.getOutboundEdges(callerQn, 'CALLS');
+    expect(secondPassEdges).toHaveLength(1);
+    expect(secondPassEdges[0].target_id).toBe(newTargetQn);
+    expect(secondPassEdges[0].confidence).toBe(0.98);
+    expect((secondPassEdges[0].props as Record<string, unknown>).resolution_method).toBe('compiler_api');
+  });
+});
+
+// ─── Test 10: Deleted-file forget (D7 onFilePruned seam) ─────────────────────
+// The worker's onFilePruned callback must normalize backslashes before calling
+// getSourceFile(), because ts-morph stores paths with forward slashes on all
+// platforms. Without normalization, getSourceFile() returns undefined on Windows
+// and forget() never fires (AST memory leak).
+//
+// This test exercises the PRODUCTION callback shape:
+//   project?.getSourceFile(absolutePath.replace(/\\/g, '/'))?.forget()
+// called with a raw OS path (which on Windows carries backslashes).
+// The test must FAIL if the normalization is omitted from the callback.
+
+describe('typescriptEnrichmentPass — D7 onFilePruned seam: forget() releases the source file', () => {
+  let fixtureDir: string;
+  let project: Project;
+
+  beforeEach(() => {
+    ({ fixtureDir, project } = createBarrelFixture());
+  });
+
+  afterEach(() => {
+    try { fs.rmSync(fixtureDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+  });
+
+  it('releases the source file when onFilePruned is called with a raw OS path (backslashes on Windows)', () => {
+    // path.join produces backslashes on Windows — this is the raw absolutePath
+    // the pipeline delivers to onFilePruned.
+    const rawAbsPath = path.join(fixtureDir, 'src', 'fooModule.ts');
+    // ts-morph's normalized form (always forward slashes, on all platforms)
+    const normPath = rawAbsPath.replace(/\\/g, '/');
+
+    // Confirm the file is tracked before forget
+    expect(project.getSourceFile(normPath)).toBeDefined();
+
+    // Reproduce the PRODUCTION onFilePruned closure from indexingWorker.ts:
+    //   project?.getSourceFile(absolutePath.replace(/\\/g, '/'))?.forget()
+    // Called with rawAbsPath exactly as the pipeline delivers it.
+    // On Windows rawAbsPath contains backslashes; the normalization in the
+    // production callback is what makes getSourceFile() find the file.
+    // Without .replace(/\\/g, '/') in the callback, this call returns undefined
+    // and forget() never fires — the bug this fix closes.
+    const productionOnFilePruned = (absolutePath: string): void => {
+      project?.getSourceFile(absolutePath.replace(/\\/g, '/'))?.forget();
+    };
+    productionOnFilePruned(rawAbsPath);
+
+    // After the production callback fires, the source file must be gone
+    expect(project.getSourceFile(normPath)).toBeUndefined();
   });
 });

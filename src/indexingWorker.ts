@@ -160,9 +160,12 @@ async function handleIndexRepository(req: IndexRepositoryRequest): Promise<void>
 
   // Wire the ts-morph forget() seam: when a file is pruned from the graph,
   // release its AST from the language-service heap. (D7)
+  // Normalize backslashes → forward slashes: ts-morph stores paths with forward
+  // slashes even on Windows, so getSourceFile() returns undefined for raw
+  // backslash paths without this normalization (memory-leak on Windows).
   const onFilePruned = (absolutePath: string): void => {
     const project = getOrInitTsMorphProject(req.options.projectRoot, req.options.skipTsEnrichment);
-    project?.getSourceFile(absolutePath)?.forget();
+    project?.getSourceFile(absolutePath.replace(/\\/g, '/'))?.forget();
   };
 
   const tsMorphProject = getOrInitTsMorphProject(req.options.projectRoot, req.options.skipTsEnrichment);

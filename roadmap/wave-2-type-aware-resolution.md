@@ -41,6 +41,9 @@ Runs **inside the existing indexing worker thread** (no second worker — avoids
 ### D5: Confidence ladder + wrong-target supersession (NEW db method)
 `compiler_api` resolution = **0.98**, above all tree-sitter tiers. Same-triplet supersession is automatic via `INSERT OR REPLACE` (`graphDatabaseHelpers.ts:42`). **FLAG — the real subtlety:** when ts-morph resolves a call to a *different target* than tree-sitter did, the `(source_id, target_id, type)` triplet differs, so REPLACE won't remove the wrong edge. The pass must explicitly delete the superseded edge first → **new method `deleteOutboundEdgesOfType(sourceId, type)`** on `GraphDatabase`, **scoped to project-internal edges** (`WHERE project = ? AND source_id = ? AND type = ?`) so it doesn't nuke correct external-package edges.
 
+### D5.1: Supersession algorithm refinement (2026-06-02, Phase 2) — "authoritative-but-guarded"
+Verified via investigation: the call-resolution pass writes CALLS/ASYNC_CALLS edges **only** when both source_id and target_id are indexed nodes (`indexingPipelineCallResolution.ts:223-225` `validNodeIds` guard) — there are NO edges to external/non-indexed targets. This makes D5's bulk `deleteOutboundEdgesOfType(caller, type)` safe (it can only touch intra-project edges). **Algorithm:** per caller+edge-type, resolve all the caller's call sites via ts-morph → `R` (only targets that map to an indexed node, at 0.98/`compiler_api`). If `R` is non-empty → `deleteOutboundEdgesOfType(project, callerId, type)` then insert `R`. **If `R` is empty → SKIP the delete** (don't let a file ts-morph fails to load/resolve wipe good tree-sitter edges). **Known limitation:** on a TS file where ts-morph resolves *some* call sites, the bulk delete drops tree-sitter edges for the unresolved sites; acceptable given ~100% spike resolution and that compiler-unresolvable calls are low-value. Edges lack call-site identity, so per-call-site reconciliation is impossible — authoritative-rebuild is the cleanest correct model.
+
 ### D6: Regex TYPEOF retained as the detection layer
 `indexingPipelineTypeofResolution.ts` stays (runs Pass 5.5, detection); the ts-morph pass *upgrades* `TYPEOF_REFERENCES` edges (correct target, 0.98) but does **not** subsume the regex pass — the regex layer is the fast-path for non-TS projects and the base layer when `skipTsEnrichment` is set.
 
@@ -82,6 +85,9 @@ Upgrade edges from **changed files only** (consistent with `callResolutionPass`)
 
 ## Ship
 Bump to **0.4.0**, CHANGELOG `[Unreleased]` → `[0.4.0]`, tag. CI matrix must pass.
+
+## Follow-up candidates
+- **Launch-diff doesn't honor `skipTsEnrichment` (Phase 2, low priority).** `handleLaunchDiff` calls `getOrInitTsMorphProject(projectRoot)` without a skip flag because `LaunchDiffRequest` has no `skipTsEnrichment` field. So a startup launch-diff reindex on the CPU-constrained box would still init the ts-morph Project (heavy). Bounded (startup-only, stale-files-only). Fix = add `skipTsEnrichment?` to `LaunchDiffRequest` + thread from the caller (single sonnet-implementer dispatch; crosses the launch-diff IPC contract).
 
 ## Risks (from the architecture pass)
 - **`refreshFromFileSystem` stale-node trap** — all child AST nodes are forgotten after refresh; re-navigate from `SourceFile`, never cache nodes across the boundary.

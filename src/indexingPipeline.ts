@@ -40,6 +40,8 @@ import { enrichmentPass } from './passes/enrichmentPass';
 import { gitCoChangePass, prefetchGitCoChangeData } from './passes/gitCoChangePass';
 import { httpLinkPass } from './passes/httpLinkPass';
 import { testDetectPass } from './passes/testDetectPass';
+import { typescriptEnrichmentPass } from './passes/typescriptEnrichmentPass';
+import type { Project } from 'ts-morph';
 import { TreeSitterParser } from './treeSitterParser';
 
 // ─── Pipeline Orchestrator ────────────────────────────────────────────────────
@@ -101,12 +103,12 @@ export class IndexingPipeline {
   }
 
   private async runCorePasses(
-    ctx: { projectName: string; projectRoot: string; indexedFiles: IndexedFile[]; structureFiles: DiscoveredFile[] },
+    ctx: { projectName: string; projectRoot: string; indexedFiles: IndexedFile[]; structureFiles: DiscoveredFile[]; tsMorphProject: Project | null },
     report: (p: string) => void,
     timings: Record<string, number>,
     errorCounter: { count: number },
   ): Promise<void> {
-    const { projectName, projectRoot, indexedFiles, structureFiles } = ctx;
+    const { projectName, projectRoot, indexedFiles, structureFiles, tsMorphProject } = ctx;
     const CHUNK = 500;
     await this.withTiming(
       'structure',
@@ -134,6 +136,23 @@ export class IndexingPipeline {
     await this.withTiming(
       'typeof_resolution',
       () => this.runChunkedPass('typeof_resolution', () => typeofResolutionPass(this.db, projectName, projectRoot, indexedFiles), report, errorCounter),
+      timings,
+    );
+    // Pass 6 — ts-morph type-aware CALLS/ASYNC_CALLS resolution.
+    // Supersedes tree-sitter edges with compiler_api edges at 0.98 confidence.
+    // No-op when tsMorphProject is null (skipTsEnrichment / no tsconfig / prior failure).
+    await this.withTiming(
+      'ts_morph_resolution',
+      async () => {
+        report('ts_morph_resolution');
+        try {
+          await typescriptEnrichmentPass(this.db, projectName, projectRoot, indexedFiles, { tsMorphProject });
+        } catch (err) {
+          log.warn('[pipeline] pass=ts_morph_resolution threw, isolating: %s', err instanceof Error ? err.message : String(err));
+          errorCounter.count++;
+        }
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      },
       timings,
     );
   }
@@ -171,12 +190,12 @@ export class IndexingPipeline {
   }
 
   private async runAllPasses(
-    ctx: { projectName: string; projectRoot: string; errCount: { count: number }; isIncrementalRun: boolean },
+    ctx: { projectName: string; projectRoot: string; errCount: { count: number }; isIncrementalRun: boolean; tsMorphProject: Project | null },
     indexedFiles: IndexedFile[],
     structureFiles: DiscoveredFile[],
     report: (phase: string) => void,
   ): Promise<Record<string, number>> {
-    const { projectName, projectRoot, errCount, isIncrementalRun } = ctx;
+    const { projectName, projectRoot, errCount, isIncrementalRun, tsMorphProject } = ctx;
     const timings: Record<string, number> = {};
 
     // Pre-fetch async data before entering synchronous SQLite transactions.
@@ -185,7 +204,7 @@ export class IndexingPipeline {
     const gitCommitFiles = await prefetchGitCoChangeData(projectRoot);
     Object.assign(timings, { git_prefetch: performance.now() - gitStart });
 
-    await this.runCorePasses({ projectName, projectRoot, indexedFiles, structureFiles }, report, timings, errCount);
+    await this.runCorePasses({ projectName, projectRoot, indexedFiles, structureFiles, tsMorphProject }, report, timings, errCount);
     await this.runEnrichmentPasses({ projectName, indexedFiles, gitCommitFiles, isIncrementalRun }, report, timings);
     return timings;
   }
@@ -267,7 +286,8 @@ export class IndexingPipeline {
     });
     const structureFiles = isIncrementalRun ? filesToProcess : allFiles;
     const errCount = { count: 0 };
-    const phaseTimingsMs = await this.runAllPasses({ projectName, projectRoot: options.projectRoot, errCount, isIncrementalRun }, indexedFiles, structureFiles, report);
+    const tsMorphProject = options.tsMorphProject ?? null;
+    const phaseTimingsMs = await this.runAllPasses({ projectName, projectRoot: options.projectRoot, errCount, isIncrementalRun, tsMorphProject }, indexedFiles, structureFiles, report);
     report('finalizing');
     const { nodesCreated, edgesCreated } = this.finalizeIndex(projectName, options, indexedFiles);
     return buildIndexResult({

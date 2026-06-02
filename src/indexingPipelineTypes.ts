@@ -43,6 +43,13 @@ export interface IndexingOptions {
    * the set of JSON-serialisable fields (workers reconstruct it locally).
    */
   onFilePruned?: (absolutePath: string) => void;
+  /**
+   * The worker-local ts-morph Project singleton for Pass 6 (D2).
+   * Null when skipTsEnrichment is set, no tsconfig.json exists, or a
+   * prior init attempt threw. Not serialisable across the IPC boundary —
+   * the worker supplies this locally, not via IndexRequestOptions.
+   */
+  tsMorphProject?: import('ts-morph').Project | null;
 }
 
 // ─── Progress reporting ───────────────────────────────────────────────────────

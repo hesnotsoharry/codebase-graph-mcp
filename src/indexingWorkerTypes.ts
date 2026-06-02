@@ -12,11 +12,13 @@ import type { IndexingOptions, IndexingProgress, IndexingResult } from './indexi
 
 /**
  * Stripped options sent across the thread boundary.
- * Functions are omitted — they cannot be serialised to worker posts:
+ * Non-serialisable fields are omitted — they cannot survive worker posts:
  *   - `onProgress` → progress comes back via WorkerProgress messages.
  *   - `onFilePruned` → worker supplies this locally (D7).
+ *   - `tsMorphProject` → worker-local singleton, reconstructed by
+ *     getOrInitTsMorphProject inside handleIndexRepository (D2/D3).
  */
-export type IndexRequestOptions = Omit<IndexingOptions, 'onProgress' | 'onFilePruned'>;
+export type IndexRequestOptions = Omit<IndexingOptions, 'onProgress' | 'onFilePruned' | 'tsMorphProject'>;
 
 export interface IndexRepositoryRequest {
   type: 'indexRepository';

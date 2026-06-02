@@ -165,7 +165,8 @@ async function handleIndexRepository(req: IndexRepositoryRequest): Promise<void>
     project?.getSourceFile(absolutePath)?.forget();
   };
 
-  const result = await pl.index({ ...req.options, onProgress, onFilePruned });
+  const tsMorphProject = getOrInitTsMorphProject(req.options.projectRoot, req.options.skipTsEnrichment);
+  const result = await pl.index({ ...req.options, onProgress, onFilePruned, tsMorphProject });
   post({ type: 'result', requestId: req.requestId, result });
 }
 
@@ -237,11 +238,15 @@ async function handleLaunchDiff(req: LaunchDiffRequest): Promise<void> {
   let reindexed = false;
   if (stale.length > 0 || deleted.length > 0) {
     log.info('[trace:worker.launchDiff] reindex triggered changedPaths=%d', stale.length);
+    // Mirror handleIndexRepository: thread the ts-morph Project singleton so
+    // Pass 6 runs on diff-triggered reindexes (Fix 1 — regression guard).
+    const tsMorphProject = getOrInitTsMorphProject(projectRoot);
     await pl.index({
       projectRoot,
       projectName,
       incremental: true,
       changedPaths: stale.map((r) => r.absolutePath),
+      tsMorphProject,
     });
     reindexed = true;
   }

@@ -1,6 +1,6 @@
 # Wave 2 — Type-Aware Resolution
 
-- **Status:** PLANNED — **Phase 0 is a go/no-go spike.** Do not build Phases 1-4 until the spike clears its acceptance bar.
+- **Status:** IN PROGRESS — **Phase 0 spike CLEARED (GATE: GO, 2026-06-02).** Building Phases 1-4 + folding in the `totalNodes: 0` reporting fix; shipping as v0.4.0.
 - **Target version:** 0.4.0 (minor)
 - **New dependency:** `ts-morph` (TypeScript Compiler API wrapper) — added at Phase 0 spike.
 - **Depends on:** Wave 1 (uses the `resolution_method` provenance from Wave 1 Decision 1; `compiler_api` is the reserved value).
@@ -54,6 +54,9 @@ Upgrade edges from **changed files only** (consistent with `callResolutionPass`)
 - **Acceptance bar:** cold-start < ~15s on the dev box **AND** resolves ≥ 80% of the call sites `callResolutionPass` currently resolves **AND** demonstrably resolves at least one barrel-re-export / overload case that tree-sitter drops.
 - **GATE:** if the bar isn't met → **STOP**, file a follow-up with the spike data, ship nothing from this wave. Do not start Phase 1.
 - **Also verify:** ts-morph's bundled `typescript` version ≥ the repo's `typescript` (else newer TS syntax silently resolves to `any`).
+
+**Phase 0 RESULT (2026-06-02) — GATE: GO.** `ts-morph@28.0.0` installed (bundles TS **6.0.2** ≥ repo 5.7.2 ✅). Spike `scripts/ts-morph-spike.ts` run via `npx tsx`: cold-start **801ms** (well under 15s), resolution **212/212 = 100%** over `queryEngine.ts` + `indexingPipeline.ts`, **3 barrel-wins** demonstrated (e.g. `getNodeSignature` @ queryEngine.ts:79 → queryEngineSupport.ts:59). All bars cleared. `ts-morph` currently in `devDependencies` — **Phase 1 must promote it to `dependencies`** (shipped `dist/` imports it at runtime).
+**Also folding into v0.4.0:** the pre-existing `totalNodes: 0 / totalEdges: 0` reporting bug (cache poisoned by the no-op incremental fast-path skipping `finalizeIndex` — `indexingPipeline.ts:234-240` + `:258-260`).
 
 ### Phase 1 — Infrastructure (lifecycle + skip flag + db method)
 - **Files:** `indexingPipelineTypes.ts` + `indexingWorkerTypes.ts` (`skipTsEnrichment`), `indexingWorker.ts` (`tsMorphProject` singleton + `getOrInitTsMorphProject` + `tsMorphProjectFailed` guard + dispose-path `forget`), `graphDatabase.ts` + `graphDatabaseHelpers.ts` (`deleteOutboundEdgesOfType`), `indexingPipelineIncremental.ts` (`onFilePruned` callback). **No pass logic yet.**

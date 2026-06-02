@@ -5,7 +5,7 @@
  * for nodes and edges. All operations are synchronous (better-sqlite3's design).
  */
 import Database from 'better-sqlite3';
-import { aggregateEdgeTypeCounts, aggregateNodeLabelCounts, buildCoreStatements, buildHashAndProjectStatements, buildSearchAndStatsStatements, rowToAdr, rowToEdge, rowToFileHash, rowToNode, rowToProject, runBfsTraversal, runGetNodesByDegree, runNodeDegreeQuery, runSearchNodes, runSearchNodesRanked, SCHEMA_SQL, } from './graphDatabaseHelpers.js';
+import { aggregateEdgeTypeCounts, aggregateNodeLabelCounts, buildCoreStatements, buildHashAndProjectStatements, buildSearchAndStatsStatements, deleteOutboundEdgesOfType as deleteOutboundEdgesOfTypeHelper, rowToAdr, rowToEdge, rowToFileHash, rowToNode, rowToProject, runBfsTraversal, runGetNodesByDegree, runNodeDegreeQuery, runSearchNodes, runSearchNodesRanked, SCHEMA_SQL, } from './graphDatabaseHelpers.js';
 import os from 'os';
 import path from 'path';
 /** Default DB path for the standalone package (no Electron dependency). */
@@ -162,6 +162,21 @@ export class GraphDatabase {
     }
     deleteEdgesByProject(project) {
         this.stmts.deleteEdgesByProject.run(project);
+    }
+    /**
+     * Delete all outbound edges of a given type from a source node, project-scoped. (D5)
+     *
+     * Used by the ts-morph enrichment pass to supersede a wrong-target edge:
+     * when compiler resolution resolves a call to a *different* target than
+     * tree-sitter did, the (source, target, type) triplet differs so
+     * INSERT OR REPLACE won't remove the old edge. This method removes the
+     * stale outbound edges before the correct-target edge is inserted.
+     *
+     * Scoped to `project` so external-package edges on other projects that
+     * happen to share source_id and type are never touched.
+     */
+    deleteOutboundEdgesOfType(project, sourceId, type) {
+        deleteOutboundEdgesOfTypeHelper(this.db, project, sourceId, type);
     }
     // ─── Search ────────────────────────────────────────────────────────────
     searchNodes(filter) {

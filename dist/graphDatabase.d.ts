@@ -42,6 +42,19 @@ export declare class GraphDatabase {
     getOutboundEdges(nodeId: string, type?: EdgeType): GraphEdge[];
     getInboundEdges(nodeId: string, type?: EdgeType): GraphEdge[];
     deleteEdgesByProject(project: string): void;
+    /**
+     * Delete all outbound edges of a given type from a source node, project-scoped. (D5)
+     *
+     * Used by the ts-morph enrichment pass to supersede a wrong-target edge:
+     * when compiler resolution resolves a call to a *different* target than
+     * tree-sitter did, the (source, target, type) triplet differs so
+     * INSERT OR REPLACE won't remove the old edge. This method removes the
+     * stale outbound edges before the correct-target edge is inserted.
+     *
+     * Scoped to `project` so external-package edges on other projects that
+     * happen to share source_id and type are never touched.
+     */
+    deleteOutboundEdgesOfType(project: string, sourceId: string, type: EdgeType): void;
     searchNodes(filter: NodeFilter): NodeSearchResult;
     searchNodesFts(query: string, limit?: number): GraphNode[];
     searchNodesRanked(project: string, query: string, limit?: number): Array<GraphNode & {

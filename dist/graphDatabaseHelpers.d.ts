@@ -15,6 +15,20 @@ export declare function buildCoreStatements(db: Database.Database): Record<strin
 export declare function buildHashAndProjectStatements(db: Database.Database): Record<string, Database.Statement>;
 /** Build search, label, stats, and ADR statements. */
 export declare function buildSearchAndStatsStatements(db: Database.Database): Record<string, Database.Statement>;
+/**
+ * Delete all outbound edges of a given type from a specific source node,
+ * scoped to a project. Project-scoping is mandatory (D5): without it, a
+ * supersession delete on an intra-project edge could accidentally remove
+ * correct external-package edges that happen to share the same source_id
+ * and type across project boundaries.
+ *
+ * Used by the ts-morph enrichment pass (Phase 2) to remove the wrong-target
+ * edge before inserting the compiler-resolved correct-target edge, when
+ * ts-morph resolves a call to a *different* target than tree-sitter did
+ * (INSERT OR REPLACE handles same-triplet supersession automatically, but
+ * cannot remove a differing-target edge).
+ */
+export declare function deleteOutboundEdgesOfType(db: Database.Database, project: string, sourceId: string, type: string): void;
 /** Build base conditions from simple NodeFilter properties. */
 export declare function buildBaseConditions(filter: NodeFilter, conditions: string[], params: unknown[]): void;
 /** Build a degree sub-expression for the given direction and edge type. */

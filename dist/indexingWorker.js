@@ -9,6 +9,7 @@
  * main-process code.  The class is still directly usable for tests.
  */
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import { parentPort, workerData } from 'worker_threads';
 import { consoleErrorLogger as log } from './loggerInterface.js';
@@ -16,11 +17,71 @@ import { mapConcurrent } from './concurrency.js';
 import { GraphDatabase } from './graphDatabase.js';
 import { IndexingPipeline } from './indexingPipeline.js';
 import { TreeSitterParser } from './treeSitterParser.js';
+import { Project } from 'ts-morph';
 // ── Worker-local singletons ───────────────────────────────────────────────────
 let db = null;
 let parser = null;
 let pipeline = null;
 let disposed = false;
+// ── ts-morph Project singleton (D2 + D4) ─────────────────────────────────────
+/** Cached ts-morph Project instance. Created at most once per worker lifetime. */
+let tsMorphProject = null;
+/**
+ * Set to true if the ts-morph Project constructor threw on first call.
+ * Prevents retry on subsequent incremental runs (D4).
+ */
+let tsMorphProjectFailed = false;
+/**
+ * Set to true if no tsconfig.json exists at projectRoot — non-TS project.
+ * Terminal condition for worker lifetime, distinct from constructor failure (D4).
+ */
+let tsMorphProjectUnavailable = false;
+/**
+ * Return the worker-local ts-morph Project singleton, or null when:
+ *   (a) skipTsEnrichment is set — CPU escape-valve (D3)
+ *   (b) no tsconfig.json exists at projectRoot — non-TS project
+ *   (c) a prior construction attempt threw — tsMorphProjectFailed guard (D4)
+ *
+ * On first real call, constructs `new Project({ tsConfigFilePath })` and
+ * caches it. If the constructor throws: sets tsMorphProjectFailed, logs a
+ * warning, and returns null without retrying on later runs.
+ */
+function getOrInitTsMorphProject(projectRoot, skipTsEnrichment) {
+    if (skipTsEnrichment)
+        return null;
+    if (tsMorphProjectFailed)
+        return null;
+    if (tsMorphProjectUnavailable)
+        return null;
+    if (tsMorphProject)
+        return tsMorphProject;
+    const tsConfigFilePath = path.join(projectRoot, 'tsconfig.json');
+    // Check synchronously — fs.existsSync is fine in worker context and avoids
+    // async complexity in what is otherwise a synchronous init path.
+    // We use a try/catch on the constructor itself as the canonical guard (D4),
+    // so a quick existence check here handles the common non-TS project case
+    // without incurring constructor overhead.
+    try {
+        // eslint-disable-next-line security/detect-non-literal-fs-filename -- projectRoot is trusted
+        fsSync.accessSync(tsConfigFilePath);
+    }
+    catch {
+        // No tsconfig.json — non-TS project, skip silently (D4)
+        tsMorphProjectUnavailable = true;
+        return null;
+    }
+    try {
+        tsMorphProject = new Project({ tsConfigFilePath });
+        log.info('[trace:worker.tsMorph] Project initialised tsconfig=%s', tsConfigFilePath);
+        return tsMorphProject;
+    }
+    catch (err) {
+        tsMorphProjectFailed = true;
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn('[trace:worker.tsMorph] Project init failed — enrichment disabled: %s', msg);
+        return null;
+    }
+}
 /**
  * Resolve the SQLite path the worker should open. Wave 53k follow-up
  * (H1): main thread passes its resolved `getDbPath()` via workerData
@@ -58,6 +119,10 @@ function disposeResources() {
     parser = null;
     db = null;
     pipeline = null;
+    // Release the ts-morph language-service heap on teardown (D2).
+    tsMorphProject = null;
+    tsMorphProjectFailed = false;
+    tsMorphProjectUnavailable = false;
 }
 // ── Messaging helpers ─────────────────────────────────────────────────────────
 function post(msg) {
@@ -73,7 +138,17 @@ async function handleIndexRepository(req) {
     const onProgress = (progress) => {
         post({ type: 'progress', requestId: req.requestId, progress });
     };
-    const result = await pl.index({ ...req.options, onProgress });
+    // Wire the ts-morph forget() seam: when a file is pruned from the graph,
+    // release its AST from the language-service heap. (D7)
+    // Normalize backslashes → forward slashes: ts-morph stores paths with forward
+    // slashes even on Windows, so getSourceFile() returns undefined for raw
+    // backslash paths without this normalization (memory-leak on Windows).
+    const onFilePruned = (absolutePath) => {
+        const project = getOrInitTsMorphProject(req.options.projectRoot, req.options.skipTsEnrichment);
+        project?.getSourceFile(absolutePath.replace(/\\/g, '/'))?.forget();
+    };
+    const tsMorphProject = getOrInitTsMorphProject(req.options.projectRoot, req.options.skipTsEnrichment);
+    const result = await pl.index({ ...req.options, onProgress, onFilePruned, tsMorphProject });
     post({ type: 'result', requestId: req.requestId, result });
 }
 function handleDispose(req) {
@@ -118,11 +193,15 @@ async function handleLaunchDiff(req) {
     let reindexed = false;
     if (stale.length > 0 || deleted.length > 0) {
         log.info('[trace:worker.launchDiff] reindex triggered changedPaths=%d', stale.length);
+        // Mirror handleIndexRepository: thread the ts-morph Project singleton so
+        // Pass 6 runs on diff-triggered reindexes (Fix 1 — regression guard).
+        const tsMorphProject = getOrInitTsMorphProject(projectRoot);
         await pl.index({
             projectRoot,
             projectName,
             incremental: true,
             changedPaths: stale.map((r) => r.absolutePath),
+            tsMorphProject,
         });
         reindexed = true;
     }

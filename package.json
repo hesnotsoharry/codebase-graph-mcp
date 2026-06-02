@@ -1,6 +1,6 @@
 {
   "name": "@hesnotsoharry/codebase-graph-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Standalone MCP server for codebase graph queries: tree-sitter parsing, SQLite persistence, AST + call-graph traversal.",
   "keywords": [

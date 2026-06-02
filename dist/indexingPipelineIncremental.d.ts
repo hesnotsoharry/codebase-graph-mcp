@@ -34,6 +34,16 @@ export interface ResolveIncrementalOpts {
     changedPaths?: string[];
     pruneDeleted: (allFiles: DiscoveredFile[]) => void;
     deleteNodes: (relativePath: string) => void;
+    /**
+     * Called for each file whose nodes are pruned from the graph (file deleted
+     * from disk). Receives the absolute path of the pruned file.
+     * Mirrors the deleteNodes callback. (D7)
+     *
+     * Used by the worker to call `tsMorphProject?.getSourceFile(path)?.forget()`
+     * so the ts-morph language service releases memory for deleted files.
+     * This phase establishes the seam; the pass that populates it lands in Phase 3.
+     */
+    onFilePruned?: (absolutePath: string) => void;
 }
 /**
  * Core incremental-reindex resolution: selects which files to process,

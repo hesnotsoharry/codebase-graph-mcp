@@ -76,15 +76,29 @@ export async function handleIndexStatus(args, ctx) {
     const nodeCounts = ctx.db.getNodeLabelCounts(name);
     const edgeCounts = ctx.db.getEdgeTypeCounts(name);
     const anomalies = readParseAnomalies(name, ctx);
-    const lines = buildIndexStatusLines({ name, project, nodeCounts, edgeCounts, anomalies });
+    // Derive the authoritative totals from the live per-label/per-type breakdowns
+    // rather than the cached project.node_count/edge_count. This guarantees the
+    // top-line and the breakdown can never disagree — even if the cache is stale
+    // (e.g. a no-op incremental run that skips finalizeIndex).
+    const totalNodes = Object.values(nodeCounts).reduce((sum, n) => sum + n, 0);
+    const totalEdges = Object.values(edgeCounts).reduce((sum, n) => sum + n, 0);
+    // Build the status lines using the live-derived totals via an inline project
+    // shape that overrides the cached counts.
+    const projectForLines = {
+        root_path: project.root_path,
+        indexed_at: project.indexed_at,
+        node_count: totalNodes,
+        edge_count: totalEdges,
+    };
+    const lines = buildIndexStatusLines({ name, project: projectForLines, nodeCounts, edgeCounts, anomalies });
     return textResult(truncate(lines.join('\n')), {
         structuredContent: {
             project: name,
             indexed: true,
             root: project.root_path,
             indexedAt: project.indexed_at,
-            totalNodes: project.node_count,
-            totalEdges: project.edge_count,
+            totalNodes,
+            totalEdges,
             nodeCountsByLabel: nodeCounts,
             edgeCountsByType: edgeCounts,
             parseAnomalies: anomalies,

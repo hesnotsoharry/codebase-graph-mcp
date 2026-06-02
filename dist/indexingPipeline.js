@@ -30,6 +30,8 @@ import { enrichmentPass } from './passes/enrichmentPass.js';
 import { gitCoChangePass, prefetchGitCoChangeData } from './passes/gitCoChangePass.js';
 import { httpLinkPass } from './passes/httpLinkPass.js';
 import { testDetectPass } from './passes/testDetectPass.js';
+import { typescriptEnrichmentPass } from './passes/typescriptEnrichmentPass.js';
+import { referencesPass } from './passes/referencesPass.js';
 // ─── Pipeline Orchestrator ────────────────────────────────────────────────────
 export class IndexingPipeline {
     db;
@@ -73,7 +75,7 @@ export class IndexingPipeline {
         Object.assign(timings, { [phase]: performance.now() - start });
     }
     async runCorePasses(ctx, report, timings, errorCounter) {
-        const { projectName, projectRoot, indexedFiles, structureFiles } = ctx;
+        const { projectName, projectRoot, indexedFiles, structureFiles, tsMorphProject } = ctx;
         const CHUNK = 500;
         await this.withTiming('structure', () => this.runPass('structure', () => structurePass(this.db, projectName, projectRoot, structureFiles), report), timings);
         await this.withTiming('definitions', () => this.runChunkedPass('definitions', () => definitionPass(this.db, projectName, indexedFiles, { chunkSize: CHUNK }), report, errorCounter), timings);
@@ -83,6 +85,35 @@ export class IndexingPipeline {
         // `typeof X`, `ReturnType<typeof X>`, and the other 4 ADR D3 patterns.
         // Runs AFTER call resolution so the symbol index is populated.
         await this.withTiming('typeof_resolution', () => this.runChunkedPass('typeof_resolution', () => typeofResolutionPass(this.db, projectName, projectRoot, indexedFiles), report, errorCounter), timings);
+        // Pass 6 — ts-morph type-aware CALLS/ASYNC_CALLS resolution.
+        // Supersedes tree-sitter edges with compiler_api edges at 0.98 confidence.
+        // No-op when tsMorphProject is null (skipTsEnrichment / no tsconfig / prior failure).
+        await this.withTiming('ts_morph_resolution', async () => {
+            report('ts_morph_resolution');
+            try {
+                await typescriptEnrichmentPass(this.db, projectName, projectRoot, indexedFiles, { tsMorphProject });
+            }
+            catch (err) {
+                log.warn('[pipeline] pass=ts_morph_resolution threw, isolating: %s', err instanceof Error ? err.message : String(err));
+                errorCounter.count++;
+            }
+            await new Promise((resolve) => setImmediate(resolve));
+        }, timings);
+        // Pass 7 — first-class REFERENCES edges for blast-radius completeness.
+        // Captures type-only references, decorator uses, and JSX element uses that
+        // CALLS and TYPEOF_REFERENCES miss. Runs after Pass 6 on the same Project
+        // instance (files already refreshed). No-op when tsMorphProject is null.
+        await this.withTiming('references', async () => {
+            report('references');
+            try {
+                await referencesPass(this.db, projectName, projectRoot, indexedFiles, { tsMorphProject });
+            }
+            catch (err) {
+                log.warn('[pipeline] pass=references threw, isolating: %s', err instanceof Error ? err.message : String(err));
+                errorCounter.count++;
+            }
+            await new Promise((resolve) => setImmediate(resolve));
+        }, timings);
     }
     async runEnrichmentPasses(ctx, report, timings) {
         const { projectName, indexedFiles, gitCommitFiles, isIncrementalRun } = ctx;
@@ -96,14 +127,14 @@ export class IndexingPipeline {
         await this.withTiming('git_history', () => this.runPass('git_history', () => gitCoChangePass(this.db, projectName, gitCommitFiles), report), timings);
     }
     async runAllPasses(ctx, indexedFiles, structureFiles, report) {
-        const { projectName, projectRoot, errCount, isIncrementalRun } = ctx;
+        const { projectName, projectRoot, errCount, isIncrementalRun, tsMorphProject } = ctx;
         const timings = {};
         // Pre-fetch async data before entering synchronous SQLite transactions.
         const gitStart = performance.now();
         report('git_prefetch');
         const gitCommitFiles = await prefetchGitCoChangeData(projectRoot);
         Object.assign(timings, { git_prefetch: performance.now() - gitStart });
-        await this.runCorePasses({ projectName, projectRoot, indexedFiles, structureFiles }, report, timings, errCount);
+        await this.runCorePasses({ projectName, projectRoot, indexedFiles, structureFiles, tsMorphProject }, report, timings, errCount);
         await this.runEnrichmentPasses({ projectName, indexedFiles, gitCommitFiles, isIncrementalRun }, report, timings);
         return timings;
     }
@@ -132,13 +163,20 @@ export class IndexingPipeline {
         const allFiles = await discoverFiles(options.projectRoot, options);
         progress.filesTotal = allFiles.length;
         const isIncremental = options.incremental !== false;
-        const { filesToProcess, isIncrementalRun } = await this.resolveFilesToProcess(isIncremental, projectName, allFiles, options.changedPaths);
+        const { filesToProcess, isIncrementalRun } = await this.resolveFilesToProcess(isIncremental, projectName, allFiles, options.changedPaths, options.onFilePruned);
+        // Preserve the last-known-good node/edge counts for existing projects.
+        // Zeroing them here poisoned the cache on every incremental run — a no-op
+        // fast-path that followed would return without calling finalizeIndex, leaving
+        // the cache stuck at 0 while the per-label breakdown (computed live) was correct.
+        // A brand-new project still starts at 0; a real index pass still overwrites with
+        // fresh live counts via finalizeIndex at the end of runIndex.
+        const existing = this.db.getProject(projectName);
         this.db.upsertProject({
             name: projectName,
             root_path: options.projectRoot,
             indexed_at: Date.now(),
-            node_count: 0,
-            edge_count: 0,
+            node_count: existing?.node_count ?? 0,
+            edge_count: existing?.edge_count ?? 0,
         });
         return { allFiles, filesToProcess, isIncrementalRun };
     }
@@ -157,7 +195,8 @@ export class IndexingPipeline {
         });
         const structureFiles = isIncrementalRun ? filesToProcess : allFiles;
         const errCount = { count: 0 };
-        const phaseTimingsMs = await this.runAllPasses({ projectName, projectRoot: options.projectRoot, errCount, isIncrementalRun }, indexedFiles, structureFiles, report);
+        const tsMorphProject = options.tsMorphProject ?? null;
+        const phaseTimingsMs = await this.runAllPasses({ projectName, projectRoot: options.projectRoot, errCount, isIncrementalRun, tsMorphProject }, indexedFiles, structureFiles, report);
         report('finalizing');
         const { nodesCreated, edgesCreated } = this.finalizeIndex(projectName, options, indexedFiles);
         return buildIndexResult({
@@ -213,8 +252,11 @@ export class IndexingPipeline {
             };
         }
     }
-    pruneDeletedFiles(projectName, allFiles) {
+    pruneDeletedFiles(projectName, allFiles, onFilePruned) {
         const diskPaths = new Set(allFiles.map((f) => f.relativePath));
+        // Build a rel→absolute map from the current allFiles snapshot so we can
+        // fire onFilePruned with the absolute path (needed for ts-morph forget()).
+        const relToAbs = new Map(allFiles.map((f) => [f.relativePath, f.absolutePath]));
         for (const hash of this.db.getAllFileHashes(projectName)) {
             if (!diskPaths.has(hash.rel_path)) {
                 // Wrap each file's two writes in one transaction so a mid-loop crash
@@ -224,18 +266,26 @@ export class IndexingPipeline {
                     this.db.deleteNodesByFile(projectName, hash.rel_path);
                     this.db.deleteFileHash(projectName, hash.rel_path);
                 });
+                // Notify the caller (e.g. worker) that this file was pruned. (D7)
+                // Absolute path: prefer the allFiles map (file may already be gone from
+                // disk, so we reconstruct from the root). Falls back to rel_path if the
+                // file was somehow absent from the discovered list.
+                const absolutePath = relToAbs.get(hash.rel_path);
+                if (absolutePath)
+                    onFilePruned?.(absolutePath);
             }
         }
     }
-    async resolveFilesToProcess(isIncremental, projectName, allFiles, changedPaths) {
+    async resolveFilesToProcess(isIncremental, projectName, allFiles, changedPaths, onFilePruned) {
         if (isIncremental && this.db.getProject(projectName)) {
             return resolveIncrementalFiles({
                 db: this.db,
                 projectName,
                 allFiles,
                 changedPaths,
-                pruneDeleted: (files) => this.pruneDeletedFiles(projectName, files),
+                pruneDeleted: (files) => this.pruneDeletedFiles(projectName, files, onFilePruned),
                 deleteNodes: (rel) => this.db.deleteNodesByFile(projectName, rel),
+                onFilePruned,
             });
         }
         this.db.deleteProject(projectName);

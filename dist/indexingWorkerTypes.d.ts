@@ -6,9 +6,15 @@
  * no WASM objects, no Buffer/ArrayBuffer.
  */
 import type { IndexingOptions, IndexingProgress, IndexingResult } from './indexingPipelineTypes';
-/** Stripped options sent across the thread boundary (onProgress omitted — it is
- *  a function and cannot be serialised; progress comes back via WorkerProgress). */
-export type IndexRequestOptions = Omit<IndexingOptions, 'onProgress'>;
+/**
+ * Stripped options sent across the thread boundary.
+ * Non-serialisable fields are omitted — they cannot survive worker posts:
+ *   - `onProgress` → progress comes back via WorkerProgress messages.
+ *   - `onFilePruned` → worker supplies this locally (D7).
+ *   - `tsMorphProject` → worker-local singleton, reconstructed by
+ *     getOrInitTsMorphProject inside handleIndexRepository (D2/D3).
+ */
+export type IndexRequestOptions = Omit<IndexingOptions, 'onProgress' | 'onFilePruned' | 'tsMorphProject'>;
 export interface IndexRepositoryRequest {
     type: 'indexRepository';
     requestId: string;

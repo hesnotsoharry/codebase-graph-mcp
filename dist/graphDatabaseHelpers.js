@@ -95,6 +95,25 @@ export function buildSearchAndStatsStatements(db) {
     `),
     };
 }
+// ─── deleteOutboundEdgesOfType ────────────────────────────────────────────────
+/**
+ * Delete all outbound edges of a given type from a specific source node,
+ * scoped to a project. Project-scoping is mandatory (D5): without it, a
+ * supersession delete on an intra-project edge could accidentally remove
+ * correct external-package edges that happen to share the same source_id
+ * and type across project boundaries.
+ *
+ * Used by the ts-morph enrichment pass (Phase 2) to remove the wrong-target
+ * edge before inserting the compiler-resolved correct-target edge, when
+ * ts-morph resolves a call to a *different* target than tree-sitter did
+ * (INSERT OR REPLACE handles same-triplet supersession automatically, but
+ * cannot remove a differing-target edge).
+ */
+export function deleteOutboundEdgesOfType(db, project, sourceId, type) {
+    db
+        .prepare('DELETE FROM edges WHERE project = ? AND source_id = ? AND type = ?')
+        .run(project, sourceId, type);
+}
 // ─── searchNodes SQL builders ─────────────────────────────────────────────────
 /** Build base conditions from simple NodeFilter properties. */
 export function buildBaseConditions(filter, conditions, params) {

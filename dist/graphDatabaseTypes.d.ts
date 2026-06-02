@@ -1,5 +1,5 @@
 export type NodeLabel = 'Project' | 'Package' | 'Folder' | 'File' | 'Module' | 'Function' | 'Method' | 'Class' | 'Interface' | 'Type' | 'Enum' | 'Route' | 'Variable' | 'Export' | 'Test';
-export type EdgeType = 'CONTAINS_PACKAGE' | 'CONTAINS_FOLDER' | 'CONTAINS_FILE' | 'DEFINES' | 'DEFINES_METHOD' | 'IMPORTS' | 'CALLS' | 'HTTP_CALLS' | 'ASYNC_CALLS' | 'IMPLEMENTS' | 'HANDLES' | 'USAGE' | 'CONFIGURES' | 'WRITES' | 'MEMBER_OF' | 'TESTS' | 'USES_TYPE' | 'FILE_CHANGES_WITH' | 'EXPORTS' | 'EXTENDS' | 'TYPEOF_REFERENCES';
+export type EdgeType = 'CONTAINS_PACKAGE' | 'CONTAINS_FOLDER' | 'CONTAINS_FILE' | 'DEFINES' | 'DEFINES_METHOD' | 'IMPORTS' | 'CALLS' | 'HTTP_CALLS' | 'ASYNC_CALLS' | 'IMPLEMENTS' | 'HANDLES' | 'USAGE' | 'CONFIGURES' | 'WRITES' | 'MEMBER_OF' | 'TESTS' | 'USES_TYPE' | 'FILE_CHANGES_WITH' | 'EXPORTS' | 'EXTENDS' | 'TYPEOF_REFERENCES' | 'REFERENCES';
 /**
  * Exported set of all recognized edge type strings.
  * The acceptance test checks for an exported constant whose name matches

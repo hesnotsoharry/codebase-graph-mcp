@@ -29,6 +29,7 @@ export const EDGE_TYPES = new Set([
     'EXPORTS',
     'EXTENDS',
     'TYPEOF_REFERENCES',
+    'REFERENCES',
 ]);
 // ─── Edge resolution provenance ──────────────────────────────────────────────
 /**

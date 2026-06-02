@@ -6,6 +6,16 @@ All notable changes to this project are documented here. Format follows [Keep a 
 
 (No changes yet.)
 
+## [0.4.0] - 2026-06-02
+
+### Added
+- **Type-aware resolution tier (ts-morph).** A new opt-in precision pass (`typescriptEnrichmentPass`, Pass 6) upgrades `CALLS`/`ASYNC_CALLS`/`TYPEOF_REFERENCES` edges using the TypeScript compiler API, resolving through the cases tree-sitter name-matching drops or mis-targets: re-exported symbols (barrel files), overloaded names across modules, interface/method dispatch, and generic instantiation. Upgraded edges are written at confidence **0.98** with `resolution_method: compiler_api` (above all tree-sitter tiers). Two-tier by design — tree-sitter stays the always-on fast structural pass; ts-morph is the precision upgrade layer. Gated behind a mandatory **`skipTsEnrichment`** flag (the CPU escape-valve for constrained environments) and degrades gracefully: no `tsconfig.json` → skip, constructor failure → skip-and-don't-retry, per-site resolution failure → leave the tree-sitter edge intact. Supersession is authoritative-but-guarded: when ts-morph resolves a caller's edges it replaces them, but never deletes a caller's edges when it resolves nothing for that caller (so a file it can't load can't wipe good tree-sitter edges). New dependency: `ts-morph` (bundles TypeScript 6.0.2). New DB method `deleteOutboundEdgesOfType` (project-scoped) backs wrong-target supersession.
+- **First-class `REFERENCES` edges for blast-radius completeness (Pass 7).** A new edge type capturing references that `CALLS`/`TYPEOF_REFERENCES` miss: type-only references (parameter/return/property annotations, `extends`/`implements`, generic arguments), decorator uses, and JSX element uses. Function-level source granularity + per-`(source, target)` dedup bound edge-count growth. This closes a blast-radius gap — a function that takes `x: IEvent` as a type but never calls it now surfaces when `IEvent` changes. REFERENCES edges participate in blast-radius automatically (inbound traversal is unfiltered by edge type). New `REFERENCES` value on `EdgeType` (no DB migration — the `type` column has no CHECK constraint).
+- **Incremental warm-update for the ts-morph tier.** Changed files refresh from disk (`refreshFromFileSystem`), new files are added on demand, and pruned/deleted files are forgotten from the ts-morph project for memory hygiene. (Known limitation: edges from *unchanged* files into a changed file aren't re-resolved incrementally — cleared by a full reindex.)
+
+### Fixed
+- **`index_status` / `list_projects` reported `totalNodes: 0 / totalEdges: 0` for fully-populated graphs.** The `projects` table caches `node_count`/`edge_count`; `discoverAndResolve` zeroed them at the start of every run, and the no-op incremental fast-path returned before `finalizeIndex` wrote the live counts back — so any "0 files changed" reindex left the cache stuck at 0 while the live per-label breakdown stayed correct. Now: `discoverAndResolve` preserves existing counts on re-index (only a brand-new project starts at 0); `index_status` derives its top-line totals by summing the live per-label/per-edge-type breakdown it already computes (top-line and breakdown can never disagree); and `list_projects` live-derives counts via `getNodeCount`/`getEdgeCount` instead of the cached columns — so already-poisoned projects report correctly immediately, with no re-index required.
+
 ## [0.3.0] - 2026-06-01
 
 ### Added
@@ -82,6 +92,8 @@ Initial standalone release. Extracted from a private upstream codebase as part o
 ### Patched in 0.1.0
 - `aa5f37b` (post-publish): added `p-limit` and `ignore` as direct deps — both were transitively inherited from the source monorepo and missing from the standalone `package.json`. Without these, `npm install` on a fresh consumer environment fails.
 
-[Unreleased]: https://github.com/hesnotsoharry/codebase-graph-mcp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/hesnotsoharry/codebase-graph-mcp/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/hesnotsoharry/codebase-graph-mcp/releases/tag/v0.4.0
+[0.3.0]: https://github.com/hesnotsoharry/codebase-graph-mcp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/hesnotsoharry/codebase-graph-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/hesnotsoharry/codebase-graph-mcp/releases/tag/v0.1.0

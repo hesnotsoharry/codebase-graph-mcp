@@ -10,37 +10,61 @@
  */
 import { textResult } from './types.js';
 import { truncate } from './mcpToolHandlerHelpers.js';
+const EMPTY_FILES_WITHOUT_SYMBOLS = {
+    count: 0,
+    files: [],
+};
 export function readParseAnomalies(projectName, ctx) {
     try {
         const value = ctx.db.getGraphMetadata(`parse_anomalies:${projectName}`);
         if (!value)
-            return { count: 0, files: [] };
+            return { count: 0, files: [], filesWithoutSymbols: EMPTY_FILES_WITHOUT_SYMBOLS };
         // Stored shape uses `files` (v0.2.2+). Fall back to `samples` for DB rows
         // written by older builds (pre-rename) so a cold-start reindex isn't required.
-        const parsed = JSON.parse(value);
-        const files = Array.isArray(parsed.files)
-            ? parsed.files
-            : Array.isArray(parsed.samples)
-                ? parsed.samples
+        const raw = JSON.parse(value);
+        const files = Array.isArray(raw.files)
+            ? raw.files
+            : Array.isArray(raw.samples)
+                ? raw.samples
                 : [];
+        const fws = raw.filesWithoutSymbols;
+        const filesWithoutSymbols = fws && Array.isArray(fws.files)
+            ? { count: typeof fws.count === 'number' ? fws.count : fws.files.length, files: fws.files }
+            : EMPTY_FILES_WITHOUT_SYMBOLS;
         return {
-            count: typeof parsed.count === 'number' ? parsed.count : 0,
+            count: typeof raw.count === 'number' ? raw.count : 0,
             files,
+            filesWithoutSymbols,
         };
     }
     catch {
-        return { count: 0, files: [] };
+        return { count: 0, files: [], filesWithoutSymbols: EMPTY_FILES_WITHOUT_SYMBOLS };
     }
 }
 function getParseAnomaliesLines(anomalies) {
+    const lines = [''];
+    // Primary metric: genuine parse errors
     if (anomalies.count === 0) {
-        return ['', 'Parse anomalies: 0 file(s) with no definitions'];
+        lines.push('Parse errors (tree-sitter ERROR/MISSING nodes): 0 file(s)');
     }
-    const lines = [`Parse anomalies: ${anomalies.count} file(s) with no definitions`];
-    for (const sample of anomalies.files) {
-        lines.push(`  - ${sample}`);
+    else {
+        lines.push(`Parse errors (tree-sitter ERROR/MISSING nodes): ${anomalies.count} file(s)`);
+        for (const f of anomalies.files) {
+            lines.push(`  - ${f}`);
+        }
     }
-    return ['', ...lines];
+    // Secondary metric: informational zero-symbol files
+    const fws = anomalies.filesWithoutSymbols;
+    if (fws.count === 0) {
+        lines.push('Files without extracted symbols (informational): 0');
+    }
+    else {
+        lines.push(`Files without extracted symbols (informational, possible extractor gap): ${fws.count} file(s)`);
+        for (const f of fws.files) {
+            lines.push(`  - ${f}`);
+        }
+    }
+    return lines;
 }
 // ─── index_status handler ─────────────────────────────────────────────────────
 function resolveProjectName(args, ctx) {
@@ -101,7 +125,11 @@ export async function handleIndexStatus(args, ctx) {
             totalEdges,
             nodeCountsByLabel: nodeCounts,
             edgeCountsByType: edgeCounts,
-            parseAnomalies: anomalies,
+            parseAnomalies: {
+                count: anomalies.count,
+                files: anomalies.files,
+                filesWithoutSymbols: anomalies.filesWithoutSymbols,
+            },
         },
     });
 }

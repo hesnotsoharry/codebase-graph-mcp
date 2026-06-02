@@ -6,6 +6,11 @@ All notable changes to this project are documented here. Format follows [Keep a 
 
 (No changes yet.)
 
+## [0.4.1] - 2026-06-02
+
+### Fixed
+- **`parseAnomalies` now means real parse failures, not zero-symbol files.** The anomaly detector was a zero-symbols heuristic (0 definitions + 0 exports + >30 lines + has calls/imports) that **never checked for tree-sitter ERROR/MISSING nodes** — so it false-flagged legitimate files (side-effecting entry points using `import.meta`, shebang-led `.mjs` scripts, service workers, data files with `Object.freeze`) while never catching a genuine parse failure. Verified by reproduction: the parser handles `import.meta`, shebangs (`hash_bang_line`), and worker globals with zero ERROR nodes. Reworked into two distinct metrics: **`parseAnomalies`** now counts only files where the live tree-sitter parse produced ERROR/MISSING nodes (`tree.rootNode.hasError`) — a trustworthy signal that reads ~0 on healthy codebases (`ParsedFileResult` gains `hasParseError` + `firstErrorLine`); the old heuristic moves to a separate, clearly-labeled **`filesWithoutSymbols`** field (informational — a possible extractor gap, not a parse failure) with expanded suppression: the documented-but-missing hooks-directory pattern (clears the bulk of `.mjs` hook-script false positives), service workers (`sw.js`/`service-worker.js`), and `*.data.*`/`*.constants.*` naming. The two metrics are disjoint (a parse-error file is never double-counted). `index_status` surfaces both; `readParseAnomalies` stays backward-compatible with pre-0.4.1 DB rows. A live-WASM end-to-end test confirms `hasParseError` flips true on broken input and false on clean/shebang input.
+
 ## [0.4.0] - 2026-06-02
 
 ### Added
@@ -92,7 +97,8 @@ Initial standalone release. Extracted from a private upstream codebase as part o
 ### Patched in 0.1.0
 - `aa5f37b` (post-publish): added `p-limit` and `ignore` as direct deps — both were transitively inherited from the source monorepo and missing from the standalone `package.json`. Without these, `npm install` on a fresh consumer environment fails.
 
-[Unreleased]: https://github.com/hesnotsoharry/codebase-graph-mcp/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/hesnotsoharry/codebase-graph-mcp/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/hesnotsoharry/codebase-graph-mcp/releases/tag/v0.4.1
 [0.4.0]: https://github.com/hesnotsoharry/codebase-graph-mcp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/hesnotsoharry/codebase-graph-mcp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/hesnotsoharry/codebase-graph-mcp/releases/tag/v0.2.0

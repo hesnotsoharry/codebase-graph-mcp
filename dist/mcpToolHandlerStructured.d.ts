@@ -13,6 +13,15 @@ import type { GraphToolContext } from './graphTypes';
 export interface ParseAnomalies {
     count: number;
     files: string[];
+    /**
+     * Informational secondary metric: files that parsed cleanly but emitted
+     * zero symbols. May indicate extractor gaps, not parse failures.
+     * Added in v0.4.x — absent in DB rows from older builds (defaults to empty).
+     */
+    filesWithoutSymbols: {
+        count: number;
+        files: string[];
+    };
 }
 export declare function readParseAnomalies(projectName: string, ctx: GraphToolContext): ParseAnomalies;
 export declare function handleIndexStatus(args: Record<string, unknown>, ctx: GraphToolContext): Promise<McpToolResult>;

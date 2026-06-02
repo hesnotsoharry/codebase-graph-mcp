@@ -28,6 +28,12 @@ export declare class TreeSitterParser {
     private matchRoutePattern;
     private extractRoutes;
     private walkTree;
+    /**
+     * Returns the 1-based line number of the first ERROR or MISSING node in the
+     * subtree rooted at `node`. Returns null if none found (caller should only
+     * call this when hasParseError is true, so null here would be unexpected).
+     */
+    private findFirstErrorLine;
     private extractExportedNames;
     dispose(): void;
 }

@@ -1,66 +1,100 @@
 /**
- * parseAnomalyDetection.ts — Detection for files processed but emitting zero definitions.
+ * parseAnomalyDetection.ts — Two-metric parse health reporting.
+ *
+ * Metric 1 — `parseAnomalies` (PRIMARY): files where tree-sitter produced
+ *   ERROR or MISSING nodes (`hasParseError === true`). These are genuine
+ *   grammar failures. Expected count is ~0 on a healthy codebase.
+ *
+ * Metric 2 — `filesWithoutSymbols` (INFORMATIONAL): files that parsed cleanly
+ *   but emitted zero definitions, zero exports, are longer than
+ *   MIN_LINES_FOR_SYMBOL_CHECK lines, and have at least one call or import
+ *   (so pure data-config objects are excluded). After suppression of well-known
+ *   zero-symbol file patterns (config files, hooks scripts, service workers,
+ *   data/constant files), any remaining entries are possible extractor gaps —
+ *   NOT parse failures.
  *
  * Extracted from the indexing pipeline to provide a permanent regression guard.
- * Files matching the anomaly criteria are counted and sampled for `index_status` output.
  */
-const MIN_LINES_FOR_ANOMALY_CHECK = 30;
+const MIN_LINES_FOR_SYMBOL_CHECK = 30;
 /**
- * Filename patterns for config/tooling files that legitimately have zero
- * definitions. These files parse cleanly but are pure-config objects that do
- * not export named functions — they are false positives for the anomaly check.
+ * Filename patterns for files that legitimately produce zero definitions.
+ * These are suppressed from the `filesWithoutSymbols` informational metric.
  *
  * The patterns cover:
  *   - Generic *.config.{js,ts,cjs,mjs} (vitest.config.ts, jest.config.js, …)
  *   - .dependency-cruiser.{cjs,js,mjs,ts} (dot-prefixed convention)
- *   - Hook scripts in .claude/hooks/ (*.mjs, *.js in a hooks directory)
+ *   - Hook scripts in any hooks directory (.claude/hooks/, assets/hooks/,
+ *     or any /hooks/ path segment) with .mjs or .js extension
+ *   - Service workers (sw.js, service-worker.js, serviceWorker.js)
+ *   - Data / constant files (*.data.*, *.constants.*)
  */
-const CONFIG_FILENAME_PATTERNS = [
+const SUPPRESSED_FILENAME_PATTERNS = [
+    // Config files
     /\.config\.[cm]?[jt]s$/,
     /(?:^|[\\/])\.dependency-cruiser\.[cm]?[jt]s$/,
     /(?:^|[\\/])vitest\.config\.[cm]?[jt]s$/,
     /(?:^|[\\/])jest\.config\.[cm]?[jt]s$/,
+    // Hook scripts in any directory named "hooks"
+    /(?:^|[\\/])hooks[\\/][^/\\]+\.[cm]?js$/,
+    // Service workers
+    /(?:^|[\\/])(?:sw|service-?[Ww]orker)\.js$/,
+    // Data / constant files
+    /\.(?:data|constants)\.[cm]?[jt]s$/,
 ];
-/** Returns true when the relative path matches a known config-file pattern. */
-function isKnownConfigFile(relativePath) {
-    return CONFIG_FILENAME_PATTERNS.some((re) => re.test(relativePath));
+/** Returns true when the relative path matches a known zero-symbol file pattern. */
+function isSuppressedFile(relativePath) {
+    return SUPPRESSED_FILENAME_PATTERNS.some((re) => re.test(relativePath));
 }
 /**
- * Counts files where:
- *   - parsed != null (file was processed, not unreadable)
- *   - parsed.definitions.length === 0 (no definitions emitted)
- *   - lineCount > MIN_LINES_FOR_ANOMALY_CHECK (exclude small config/index barrels)
- *   - exportedNames.length === 0 (exclude pure re-export barrels)
- *   - NOT a pure data-config object (zero definitions AND zero calls AND zero imports)
- *   - NOT matching a known config filename pattern
+ * Analyses `indexedFiles` and returns the two-metric parse health report.
  *
- * Returns count + the complete sorted list of anomalous relative paths.
+ * Primary metric (`count` / `files`):
+ *   Files where `hasParseError === true` (genuine tree-sitter ERROR/MISSING nodes).
+ *
+ * Secondary metric (`filesWithoutSymbols`):
+ *   Files that:
+ *     - parsed cleanly (hasParseError === false)
+ *     - have zero definitions AND zero exports
+ *     - are longer than MIN_LINES_FOR_SYMBOL_CHECK lines
+ *     - have at least one call or import (not pure data-config objects)
+ *     - do NOT match a known suppression pattern
  */
 export function countParseAnomalies(indexedFiles) {
-    const anomalies = [];
+    const parseErrors = [];
+    const withoutSymbols = [];
     for (const file of indexedFiles) {
         if (file.parsed === null)
             continue;
+        // Primary metric: genuine parse failures
+        if (file.parsed.hasParseError) {
+            parseErrors.push(file.relativePath);
+            continue; // A file with parse errors is already the primary signal;
+            // don't also count it as a zero-symbol file
+        }
+        // Secondary metric: clean parse, but zero symbols extracted
         if (file.parsed.definitions.length > 0)
             continue;
-        if (file.parsed.lineCount <= MIN_LINES_FOR_ANOMALY_CHECK)
+        if (file.parsed.lineCount <= MIN_LINES_FOR_SYMBOL_CHECK)
             continue;
         if (file.parsed.exportedNames.length > 0)
             continue;
-        // Suppress pure data-config objects: files with zero definitions that also
-        // have no calls and no imports are plain object literals / config defaults —
-        // not a parser regression, just a legitimate zero-definition module.
+        // Exclude pure data-config objects: zero calls AND zero imports
         if (file.parsed.calls.length === 0 && file.parsed.imports.length === 0)
             continue;
-        // Suppress well-known config filenames regardless of their call/import counts.
-        if (isKnownConfigFile(file.relativePath))
+        // Suppress known zero-symbol file patterns
+        if (isSuppressedFile(file.relativePath))
             continue;
-        anomalies.push(file.relativePath);
+        withoutSymbols.push(file.relativePath);
     }
-    anomalies.sort();
+    parseErrors.sort();
+    withoutSymbols.sort();
     return {
-        count: anomalies.length,
-        files: anomalies,
+        count: parseErrors.length,
+        files: parseErrors,
+        filesWithoutSymbols: {
+            count: withoutSymbols.length,
+            files: withoutSymbols,
+        },
     };
 }
 //# sourceMappingURL=parseAnomalyDetection.js.map

@@ -76,6 +76,18 @@ export interface ParsedFileResult {
   calls: ExtractedCall[];
   routes: ExtractedRoute[];
   exportedNames: string[]; // All names exported from this file
+  /**
+   * True when the tree-sitter parse tree contains ERROR or MISSING nodes
+   * (i.e. `tree.rootNode.hasError === true`). Populated by TreeSitterParser.
+   * A false value means the grammar accepted the file without any syntax
+   * errors — even if zero definitions were extracted.
+   */
+  hasParseError: boolean;
+  /**
+   * 1-based line number of the first ERROR or MISSING node, when hasParseError
+   * is true. Null when the file parsed cleanly.
+   */
+  firstErrorLine: number | null;
 }
 
 // ─── Language configuration ──────────────────────────────────────────────────

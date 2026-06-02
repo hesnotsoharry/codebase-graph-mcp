@@ -10,12 +10,14 @@ import type { ParsedFileResult } from './treeSitterTypes';
 
 // Helper to create a minimal parsed file result.
 // `calls` defaults to 1 so zero-definition files are treated as real source
-// (not pure-data-config objects) and still trigger the anomaly check.
+// (not pure-data-config objects) and still trigger the filesWithoutSymbols check.
+// `hasParseError` defaults to false (clean parse).
 function createParsedFile(
   definitions: number = 1,
   lineCount: number = 50,
   exportedNames: number = 0,
   calls: number = 1,
+  hasParseError: boolean = false,
 ): ParsedFileResult {
   return {
     definitions: Array(definitions).fill({ name: 'dummy', kind: 'Function' }),
@@ -23,6 +25,8 @@ function createParsedFile(
     exportedNames: Array(exportedNames).fill('dummy'),
     calls: Array(calls).fill({ calleeName: 'dummy', receiverName: null, startLine: 1, isAsync: false, arguments: 0, isNewExpression: false }),
     imports: [],
+    hasParseError,
+    firstErrorLine: null,
   } as unknown as ParsedFileResult;
 }
 
@@ -104,17 +108,18 @@ describe('buildIndexResult', () => {
     expect(result.parseAnomalies).toBeDefined();
     expect(result.parseAnomalies!.count).toBe(0);
     expect(result.parseAnomalies!.files).toEqual([]);
+    expect(result.parseAnomalies!.filesWithoutSymbols).toEqual({ count: 0, files: [] });
   });
 
-  it('includes parseAnomalies count when anomalies exist', () => {
+  it('counts a file with hasParseError:true in parseAnomalies.count (genuine parse failure)', () => {
     const startTime = Date.now();
     const opts: IndexResultOpts = {
       db: createMockDb() as never,
       projectName: 'test-project',
       allFiles: [
         {
-          absolutePath: '/test/src/anomaly.ts',
-          relativePath: 'src/anomaly.ts',
+          absolutePath: '/test/src/broken.ts',
+          relativePath: 'src/broken.ts',
           extension: 'ts',
           sizeBytes: 1024,
           mtimeMs: Date.now(),
@@ -122,8 +127,8 @@ describe('buildIndexResult', () => {
       ],
       filesToProcess: [
         {
-          absolutePath: '/test/src/anomaly.ts',
-          relativePath: 'src/anomaly.ts',
+          absolutePath: '/test/src/broken.ts',
+          relativePath: 'src/broken.ts',
           extension: 'ts',
           sizeBytes: 1024,
           mtimeMs: Date.now(),
@@ -131,13 +136,13 @@ describe('buildIndexResult', () => {
       ],
       indexedFiles: [
         {
-          absolutePath: '/test/src/anomaly.ts',
-          relativePath: 'src/anomaly.ts',
+          absolutePath: '/test/src/broken.ts',
+          relativePath: 'src/broken.ts',
           extension: 'ts',
           sizeBytes: 1024,
           mtimeMs: Date.now(),
           contentHash: 'abc123',
-          parsed: createParsedFile(0, 50, 0), // anomaly: zero definitions
+          parsed: createParsedFile(0, 50, 0, 1, /* hasParseError */ true),
         },
       ],
       nodesCreated: 0,
@@ -160,9 +165,72 @@ describe('buildIndexResult', () => {
 
     const result = buildIndexResult(opts);
 
+    // Primary metric: genuine parse errors only
     expect(result.parseAnomalies).toBeDefined();
     expect(result.parseAnomalies!.count).toBe(1);
-    expect(result.parseAnomalies!.files).toContain('src/anomaly.ts');
+    expect(result.parseAnomalies!.files).toContain('src/broken.ts');
+  });
+
+  it('routes a clean-parse zero-symbol file to filesWithoutSymbols, not parseAnomalies.count', () => {
+    const startTime = Date.now();
+    const opts: IndexResultOpts = {
+      db: createMockDb() as never,
+      projectName: 'test-project',
+      allFiles: [
+        {
+          absolutePath: '/test/src/entry.ts',
+          relativePath: 'src/entry.ts',
+          extension: 'ts',
+          sizeBytes: 1024,
+          mtimeMs: Date.now(),
+        },
+      ],
+      filesToProcess: [
+        {
+          absolutePath: '/test/src/entry.ts',
+          relativePath: 'src/entry.ts',
+          extension: 'ts',
+          sizeBytes: 1024,
+          mtimeMs: Date.now(),
+        },
+      ],
+      indexedFiles: [
+        {
+          absolutePath: '/test/src/entry.ts',
+          relativePath: 'src/entry.ts',
+          extension: 'ts',
+          sizeBytes: 1024,
+          mtimeMs: Date.now(),
+          contentHash: 'abc123',
+          parsed: createParsedFile(0, 50, 0, 1, /* hasParseError */ false), // zero defs, clean parse
+        },
+      ],
+      nodesCreated: 0,
+      edgesCreated: 0,
+      phaseTimingsMs: {},
+      progress: {
+        phase: 'finalizing',
+        filesTotal: 1,
+        filesProcessed: 1,
+        nodesCreated: 0,
+        edgesCreated: 0,
+        errors: [],
+        startedAt: startTime,
+        elapsedMs: 100,
+      },
+      isIncrementalRun: false,
+      passErrors: 0,
+      startTime,
+    };
+
+    const result = buildIndexResult(opts);
+
+    // parseAnomalies.count must be 0 — no ERROR/MISSING nodes
+    expect(result.parseAnomalies!.count).toBe(0);
+    expect(result.parseAnomalies!.files).toEqual([]);
+    // The file appears in the informational secondary metric instead
+    expect(result.parseAnomalies!.filesWithoutSymbols.count).toBe(1);
+    expect(result.parseAnomalies!.filesWithoutSymbols.files).toContain('src/entry.ts');
   });
 
   it('calculates filesSkipped correctly', () => {

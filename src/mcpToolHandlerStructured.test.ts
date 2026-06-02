@@ -136,26 +136,30 @@ describe('handleIndexStatus — structuredContent (Phase B2)', () => {
 });
 
 describe('handleIndexStatus — parseAnomalies always-emit (Phase B4)', () => {
-  it('emits parseAnomalies:{count:0,files:[]} when none recorded', async () => {
+  it('emits parseAnomalies with count:0, files:[], and filesWithoutSymbols when none recorded', async () => {
     const result = await handleIndexStatus({}, ctx);
     const sc = result.structuredContent as { parseAnomalies?: unknown } | undefined;
     expect(sc?.parseAnomalies).toBeDefined();
-    expect(sc?.parseAnomalies).toEqual({ count: 0, files: [] });
+    expect(sc?.parseAnomalies).toEqual({
+      count: 0,
+      files: [],
+      filesWithoutSymbols: { count: 0, files: [] },
+    });
   });
 
-  it('text content includes "Parse anomalies: 0 file(s)" line on zero count', async () => {
+  it('text content includes parse error summary line on zero count', async () => {
     const result = await handleIndexStatus({}, ctx);
-    expect(result.content[0].text).toContain('Parse anomalies: 0 file(s)');
+    expect(result.content[0].text).toContain('Parse errors (tree-sitter ERROR/MISSING nodes): 0 file(s)');
   });
 });
 
 describe('readParseAnomalies', () => {
-  it('returns zero shape when metadata key is absent', () => {
+  it('returns zero shape (with filesWithoutSymbols) when metadata key is absent', () => {
     const r = readParseAnomalies('definitely-not-a-project', ctx);
-    expect(r).toEqual({ count: 0, files: [] });
+    expect(r).toEqual({ count: 0, files: [], filesWithoutSymbols: { count: 0, files: [] } });
   });
 
-  it('round-trips 8 anomaly paths without truncation (v0.2.2 full-list guarantee)', () => {
+  it('round-trips 8 parse-error paths without truncation (v0.2.2 full-list guarantee)', () => {
     // Write a stored anomaly payload that exceeds the old 5-sample cap.
     const paths = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts', 'h.ts'];
     db.setGraphMetadata(
@@ -166,6 +170,8 @@ describe('readParseAnomalies', () => {
     expect(r.count).toBe(8);
     expect(r.files).toHaveLength(8);
     expect(r.files).toEqual(paths);
+    // filesWithoutSymbols defaults to empty when absent from stored row
+    expect(r.filesWithoutSymbols).toEqual({ count: 0, files: [] });
   });
 
   it('reads legacy stored shape (samples field) without data loss on first boot after upgrade', () => {
@@ -179,6 +185,25 @@ describe('readParseAnomalies', () => {
     const r = readParseAnomalies(PROJECT, ctx);
     expect(r.count).toBe(3);
     expect(r.files).toEqual(legacyPaths);
+    expect(r.filesWithoutSymbols).toEqual({ count: 0, files: [] });
+  });
+
+  it('round-trips filesWithoutSymbols when present in stored row', () => {
+    const parseErrorPaths = ['bad.ts'];
+    const symbollessPaths = ['entry.mts', 'cli.ts'];
+    db.setGraphMetadata(
+      `parse_anomalies:${PROJECT}`,
+      JSON.stringify({
+        count: 1,
+        files: parseErrorPaths,
+        filesWithoutSymbols: { count: 2, files: symbollessPaths },
+      }),
+    );
+    const r = readParseAnomalies(PROJECT, ctx);
+    expect(r.count).toBe(1);
+    expect(r.files).toEqual(parseErrorPaths);
+    expect(r.filesWithoutSymbols.count).toBe(2);
+    expect(r.filesWithoutSymbols.files).toEqual(symbollessPaths);
   });
 });
 

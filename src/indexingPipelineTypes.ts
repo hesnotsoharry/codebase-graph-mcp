@@ -78,7 +78,7 @@ export interface IndexingResult {
   durationMs: number;
   incremental: boolean; // Was this an incremental reindex?
   phaseTimingsMs?: Record<string, number>; // per-pass wall-clock time (ms)
-  parseAnomalies?: ParseAnomalyResult; // Files with zero definitions (regression detection)
+  parseAnomalies?: ParseAnomalyResult; // Two-metric parse health: primary=genuine parse errors, secondary=filesWithoutSymbols
   passErrors?: number; // Count of passes that threw during core indexing (Fix C: catalog integrity)
 }
 

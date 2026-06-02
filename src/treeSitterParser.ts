@@ -172,6 +172,16 @@ export class TreeSitterParser {
       const routes = this.extractRoutes(tree.rootNode, config);
       const exportedNames = this.extractExportedNames(tree.rootNode, config);
 
+      // Detect genuine parse failures via tree-sitter's hasError flag.
+      // Node.hasError returns true when the node or any descendant is an ERROR
+      // or MISSING node. This is the canonical way to check parse success in
+      // web-tree-sitter — it covers both ERROR (unexpected token) and MISSING
+      // (expected token not found) node types.
+      const hasParseError = tree.rootNode.hasError;
+      const firstErrorLine = hasParseError
+        ? this.findFirstErrorLine(tree.rootNode)
+        : null;
+
       return {
         filePath: relativePath,
         language: config.id,
@@ -181,6 +191,8 @@ export class TreeSitterParser {
         calls,
         routes,
         exportedNames,
+        hasParseError,
+        firstErrorLine,
       };
     } finally {
       tree.delete();
@@ -374,6 +386,28 @@ export class TreeSitterParser {
         if (child) stack.push(child);
       }
     }
+  }
+
+  /**
+   * Returns the 1-based line number of the first ERROR or MISSING node in the
+   * subtree rooted at `node`. Returns null if none found (caller should only
+   * call this when hasParseError is true, so null here would be unexpected).
+   */
+  private findFirstErrorLine(node: Node): number | null {
+    const stack: Node[] = [node];
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      if (current.type === 'ERROR' || current.isMissing) {
+        return current.startPosition.row + 1; // convert 0-based row to 1-based line
+      }
+      const childCount = current.childCount;
+      // Push in reverse so we process left-to-right (find the FIRST error)
+      for (let i = childCount - 1; i >= 0; i--) {
+        const child = current.child(i);
+        if (child) stack.push(child);
+      }
+    }
+    return null;
   }
 
   private extractExportedNames(rootNode: Node, config: LanguageConfig): string[] {

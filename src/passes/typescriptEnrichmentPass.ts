@@ -57,16 +57,20 @@ const TS_EXTENSIONS = new Set(['ts', 'tsx']);
  * Scheme: `${projectName}.${relativePath.replace(/\//g,'.').replace(/\.[^.]+$/,'')}`
  * Mirrors indexingPipelineCallResolution.ts:140 and
  * indexingPipelineTypeofResolution.ts:185.
+ *
+ * Exported so referencesPass.ts can reuse without duplication.
  */
-function buildFileQn(projectName: string, relativePath: string): string {
+export function buildFileQn(projectName: string, relativePath: string): string {
   return `${projectName}.${relativePath.replace(/\//g, '.').replace(/\.[^.]+$/, '')}`;
 }
 
 /**
  * Build the qualified-name for a named symbol inside a file.
  * Scheme: `${fileQn}.${symbolName}`
+ *
+ * Exported so referencesPass.ts can reuse without duplication.
  */
-function buildSymbolQn(fileQn: string, symbolName: string): string {
+export function buildSymbolQn(fileQn: string, symbolName: string): string {
   return `${fileQn}.${symbolName}`;
 }
 
@@ -112,8 +116,10 @@ function buildTypeofValidNodeIds(db: GraphDatabase, projectName: string): Set<st
  * Case-insensitive prefix comparison handles Windows drive-letter case
  * differences (C:/ vs c:/) between ts-morph's getFilePath() and projectRoot.
  * Slices from the original normFile to preserve real casing in the result.
+ *
+ * Exported so referencesPass.ts can reuse without duplication.
  */
-function absoluteToRelative(
+export function absoluteToRelative(
   absoluteFilePath: string,
   projectRoot: string,
 ): string | null {
@@ -251,8 +257,10 @@ function resolveTypeQueryDeclaration(
  * function or method and return its name. Returns null if none found.
  *
  * Mirrors the tree-sitter pass's enclosingDef lookup so caller QN aligns.
+ *
+ * Exported so referencesPass.ts can reuse without duplication.
  */
-function getEnclosingFunctionName(node: import('ts-morph').Node): string | null {
+export function getEnclosingFunctionName(node: import('ts-morph').Node): string | null {
   let current: import('ts-morph').Node | undefined = node.getParent();
 
   while (current) {

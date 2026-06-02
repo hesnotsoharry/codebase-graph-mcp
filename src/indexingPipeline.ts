@@ -41,6 +41,7 @@ import { gitCoChangePass, prefetchGitCoChangeData } from './passes/gitCoChangePa
 import { httpLinkPass } from './passes/httpLinkPass';
 import { testDetectPass } from './passes/testDetectPass';
 import { typescriptEnrichmentPass } from './passes/typescriptEnrichmentPass';
+import { referencesPass } from './passes/referencesPass';
 import type { Project } from 'ts-morph';
 import { TreeSitterParser } from './treeSitterParser';
 
@@ -149,6 +150,24 @@ export class IndexingPipeline {
           await typescriptEnrichmentPass(this.db, projectName, projectRoot, indexedFiles, { tsMorphProject });
         } catch (err) {
           log.warn('[pipeline] pass=ts_morph_resolution threw, isolating: %s', err instanceof Error ? err.message : String(err));
+          errorCounter.count++;
+        }
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      },
+      timings,
+    );
+    // Pass 7 — first-class REFERENCES edges for blast-radius completeness.
+    // Captures type-only references, decorator uses, and JSX element uses that
+    // CALLS and TYPEOF_REFERENCES miss. Runs after Pass 6 on the same Project
+    // instance (files already refreshed). No-op when tsMorphProject is null.
+    await this.withTiming(
+      'references',
+      async () => {
+        report('references');
+        try {
+          await referencesPass(this.db, projectName, projectRoot, indexedFiles, { tsMorphProject });
+        } catch (err) {
+          log.warn('[pipeline] pass=references threw, isolating: %s', err instanceof Error ? err.message : String(err));
           errorCounter.count++;
         }
         await new Promise<void>((resolve) => setImmediate(resolve));

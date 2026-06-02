@@ -40,7 +40,8 @@ export type EdgeType =
   | 'FILE_CHANGES_WITH'
   | 'EXPORTS'
   | 'EXTENDS'
-  | 'TYPEOF_REFERENCES';
+  | 'TYPEOF_REFERENCES'
+  | 'REFERENCES';
 
 /**
  * Exported set of all recognized edge type strings.
@@ -72,6 +73,7 @@ export const EDGE_TYPES = new Set<EdgeType>([
   'EXPORTS',
   'EXTENDS',
   'TYPEOF_REFERENCES',
+  'REFERENCES',
 ]);
 
 // ─── Node Properties (stored as JSON) ───────────────────────────────────────

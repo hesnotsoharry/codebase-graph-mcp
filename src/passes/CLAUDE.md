@@ -12,7 +12,8 @@ Supplementary graph passes that run after the core tree-sitter indexing pipeline
 | `gitCoChangePass.ts` | Runs `git log` on the project root, creates `FILE_CHANGES_WITH` edges between files that co-change 3+ times in the last 200 commits |
 | `httpLinkPass.ts` | Scans call sites for HTTP client patterns (`fetch`, `axios`, `requests`, `httpx`, etc.), creates `HTTP_CALLS` edges with 0.0–1.0 confidence scores linking callers to `Route` nodes |
 | `testDetectPass.ts` | Identifies test files by naming convention, creates `TESTS` edges using two heuristics: name-based (test fn name contains subject fn name) and import-based |
-| `typescriptEnrichmentPass.ts` | **Pass 6** — type-aware `CALLS`/`ASYNC_CALLS`/`TYPEOF_REFERENCES` resolution via ts-morph compiler API at 0.98 confidence. Supersedes tree-sitter heuristic edges (Phase 2: CALLS/ASYNC_CALLS; Phase 3: TYPEOF_REFERENCES). TS/TSX only. No-op when ts-morph Project is null. |
+| `typescriptEnrichmentPass.ts` | **Pass 6** — type-aware `CALLS`/`ASYNC_CALLS`/`TYPEOF_REFERENCES` resolution via ts-morph compiler API at 0.98 confidence. Supersedes tree-sitter heuristic edges (Phase 2: CALLS/ASYNC_CALLS; Phase 3: TYPEOF_REFERENCES). TS/TSX only. No-op when ts-morph Project is null. Exports `buildFileQn`, `buildSymbolQn`, `absoluteToRelative`, `getEnclosingFunctionName` for reuse by Pass 7. |
+| `referencesPass.ts` | **Pass 7** — first-class `REFERENCES` edges for blast-radius completeness. Captures type-only references (TypeReference nodes), decorator uses, and JSX element uses that CALLS and TYPEOF miss. Source = function-level QN (enclosing function/method/class); deduped per (sourceQn, targetQn). 0.98/compiler\_api. TS/TSX only. No supersession (new edge type, no tree-sitter base). No-op when ts-morph Project is null. |
 
 ## Pass Interface
 
@@ -31,6 +32,7 @@ export function xyzPass(db: GraphDatabase, projectName: string, projectRoot?: st
 | `FILE_CHANGES_WITH` | `gitCoChangePass` | Two files frequently co-committed (props: `{ count }`) |
 | `HTTP_CALLS` | `httpLinkPass` | Function calls an HTTP endpoint (props: `{ confidence, http_method, resolution_method }`) |
 | `TESTS` | `testDetectPass` | Test function exercises a production function |
+| `REFERENCES` | `referencesPass` | Function/method/class references a type-only symbol (type annotation, decorator, JSX tag) with no CALLS edge — blast-radius completeness (Pass 7, Wave 2 Phase 4) |
 
 ## `resolution_method` provenance (Wave 1, Phase 0)
 
@@ -46,7 +48,7 @@ Every edge written by a resolution pass carries `props.resolution_method` — a 
 | `url_literal` | `HTTP_CALLS` | Static literal URL path + method match (exact) → confidence 0.95 |
 | `url_template` | `HTTP_CALLS` | Template-literal/param URL path + method match → confidence 0.8 |
 | `heuristic_name` | `HTTP_CALLS` | Fell back to caller-name / route-path string heuristic (no static URL) → confidence ≤ 0.5 |
-| `compiler_api` | `CALLS` / `ASYNC_CALLS` / `TYPEOF_REFERENCES` | ts-morph type-checked resolution (Pass 6, Wave 2 Phases 2+3) — confidence 0.98; supersedes tree-sitter heuristic edges |
+| `compiler_api` | `CALLS` / `ASYNC_CALLS` / `TYPEOF_REFERENCES` / `REFERENCES` | ts-morph type-checked resolution (Pass 6 Phases 2+3, Pass 7 Phase 4) — confidence 0.98; supersedes tree-sitter heuristic edges for CALLS/TYPEOF; new edge type for REFERENCES |
 
 Querying example: `WHERE e.props ->> 'resolution_method' = 'import_resolved'` (SQLite `json_extract` syntax) or Cypher `WHERE e.resolution_method = 'import_resolved'` once the Cypher engine supports props dot-access.
 
@@ -64,6 +66,13 @@ Querying example: `WHERE e.props ->> 'resolution_method' = 'import_resolved'` (S
 - **`typescriptEnrichmentPass` — incremental wiring (D7).** Changed files: `refreshFromFileSystem()` in the async pre-step reads current disk content. New files: `addSourceFileAtPath()` in the same pre-step registers them. Deleted/pruned files: the worker's `onFilePruned` callback calls `tsMorphProject.getSourceFile(path)?.forget()`, releasing the AST from the language-service heap. Cross-file incoming-edge staleness on unchanged files is a documented limitation — cleared by full reindex.
 - **`tsMorphProjectFailed` / `tsMorphProjectUnavailable` are terminal for the worker lifetime.** If the ts-morph Project constructor throws or no tsconfig is found, `getOrInitTsMorphProject` returns null on all subsequent runs without retrying. The operator must restart the worker to recover. Both flags reset in `disposeResources()`.
 - **`typescriptEnrichmentPass` — regex typeof pass (Pass 5.5) is RETAINED (D6).** `indexingPipelineTypeofResolution.ts` runs as Pass 5.5 and is the fast-path/base layer for non-TS projects and when `skipTsEnrichment` is set. Pass 6 upgrades its edges to the correct target at 0.98/`compiler_api` but does not subsume it.
+- **`referencesPass` (Pass 7) — source is function-level, deduped.** `source_id` = enclosing function/method/class QN (same scheme as CALLS). Multiple references from one function to one type produce exactly ONE REFERENCES edge. This bounds edge-count growth vs. emitting one edge per TypeReference node.
+- **`referencesPass` — no supersession.** REFERENCES is a new edge type with no tree-sitter base. Re-indexing a file reuses `INSERT OR REPLACE` idempotency on the UNIQUE(source_id, target_id, type) triplet — no `deleteOutboundEdgesOfType` call needed.
+- **`referencesPass` — blast-radius participation.** `collectInboundNeighbours` in `graphDatabaseSession.ts` calls `getInboundEdges(id)` with no edge-type filter, so REFERENCES edges are followed automatically. No traversal changes required.
+- **`referencesPass` — no second refresh.** Pass 7 runs after Pass 6 on the same `Project` instance. Pass 6 already called `refreshFromFileSystem()` for every file in `indexedFiles`. Pass 7 reads the already-refreshed AST directly.
+- **`referencesPass` — JSX intrinsics filtered.** Tags whose first character is lowercase (e.g. `div`, `span`) are HTML intrinsics and are skipped. Only PascalCase or `_`-prefixed tags (project-defined components) are resolved.
+- **`referencesPass` — decorator class-level source.** Decorators on class declarations have no enclosing function. In that case the decorated class name is used as the source QN (so `@Component` on `class AppComponent` → source = `project.src.app.AppComponent`).
+- **`referencesPass` — decorator/CALLS overlap is intentional and benign.** A factory-call decorator (`@Log()`) on a method produces BOTH a CALLS edge (Pass 6 — the factory is called) AND a REFERENCES edge (Pass 7 — the method references the decorator symbol). Both are semantically true; blast-radius deduplicates nodes by ID so the overlap does not inflate results.
 
 ## Dependencies
 

@@ -97,7 +97,7 @@ export class IndexingWorkerClient {
    * Serializes through the same queue as runIndex so concurrent launchDiff +
    * runIndex requests are handled one at a time.
    */
-  runLaunchDiff(opts: { projectRoot: string; projectName: string }): Promise<LaunchDiffResult> {
+  runLaunchDiff(opts: { projectRoot: string; projectName: string; skipTsEnrichment?: boolean }): Promise<LaunchDiffResult> {
     this.logger.info(
       `[trace:workerClient.runLaunchDiff] queueDepth=${this.queue.length} busy=${this.busy}`,
     );
@@ -209,7 +209,7 @@ export class IndexingWorkerClient {
   }
 
   private dispatchLaunchDiff(
-    opts: { projectRoot: string; projectName: string },
+    opts: { projectRoot: string; projectName: string; skipTsEnrichment?: boolean },
     resolve: PendingLaunchDiff['resolve'],
     reject: PendingLaunchDiff['reject'],
   ): void {
@@ -221,6 +221,7 @@ export class IndexingWorkerClient {
       requestId,
       projectRoot: opts.projectRoot,
       projectName: opts.projectName,
+      skipTsEnrichment: opts.skipTsEnrichment,
     });
   }
 

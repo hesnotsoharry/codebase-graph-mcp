@@ -84,7 +84,8 @@ Full best-practice-spectrum framing ONLY when 3+ axes are in genuine tension. --
 | Phase | Dispatched | Completed | Commit SHA | Observation point hit |
 |---|---|---|---|---|
 | 1 | 2026-06-02 | 2026-06-02 | 1a1816a | Internal — no observation point (behavior-preserving; tsc clean, 86 touched tests green) |
-| 2 | 2026-06-02 | 2026-06-02 | (this commit) | Oracle (8b09665) green: search_graph union excludes async-only-called fns; single-type regression intact. tsc clean, 110 touched tests pass. Review FLAG (type-ergonomics) fixed inline. |
+| 2 | 2026-06-02 | 2026-06-02 | b97375d | Oracle (8b09665) green: search_graph union excludes async-only-called fns; single-type regression intact. tsc clean, 110 touched tests pass. Review FLAG (type-ergonomics) fixed inline. |
+| 3 | 2026-06-02 | 2026-06-02 | (this commit) | Oracle (b26bbbb) green: launch-diff serializes skipTsEnrichment to worker. handleLaunchDiff threads flag → null ts-morph project → Pass 6/7 skip. Review FLAG (ternary vs param consistency) fixed inline. Full suite 883 pass, tsc clean. |
 
 ## Follow-up candidates
 

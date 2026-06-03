@@ -130,18 +130,23 @@ export class CypherEngine {
         const match = parsed.match;
         if (match.label === 'Project')
             return this.singleProjectSql(parsed, match);
-        const params = [];
         const alias = match.alias || '_n0';
         const optAliases = this.optionalMatchAliases(parsed.optionalMatch);
         const selectCols = this.buildSelectColumns(parsed, alias, ...optAliases);
+        // Build the optional JOIN fragment first so its params (e.g. edge-type ?)
+        // can be prepended before the WHERE-clause params, matching SQL document order:
+        // JOIN ON params bind before WHERE params in SQLite's left-to-right ? resolution.
+        const optJoinParams = [];
+        const optJoin = parsed.optionalMatch
+            ? buildOptionalHopJoin(parsed.optionalMatch, alias, optJoinParams)
+            : '';
         const conditions = [`${alias}.project = ?`];
-        params.push(this.projectName);
+        const whereParams = [this.projectName];
         if (match.label) {
             conditions.push(`${alias}.label = ?`);
-            params.push(match.label);
+            whereParams.push(match.label);
         }
-        this.addWhereConditions(parsed.where, conditions, params);
-        const optJoin = parsed.optionalMatch ? buildOptionalHopJoin(parsed.optionalMatch, alias) : '';
+        this.addWhereConditions(parsed.where, conditions, whereParams);
         const orderBy = buildOrderBy(parsed.orderBy);
         const distinct = parsed.isDistinct ? 'DISTINCT ' : '';
         const sql = [
@@ -153,7 +158,7 @@ export class CypherEngine {
             `LIMIT ?`,
             parsed.offset > 0 ? `OFFSET ?` : '',
         ].filter(Boolean).join(' ');
-        params.push(parsed.limit + 1);
+        const params = [...optJoinParams, ...whereParams, parsed.limit + 1];
         if (parsed.offset > 0)
             params.push(parsed.offset);
         return { text: sql, params };
@@ -193,16 +198,21 @@ export class CypherEngine {
     }
     singleHopSql(parsed) {
         const match = parsed.match;
-        const params = [];
         const { left, right, edgeAlias: cypherEdgeAlias, direction } = match;
         const selectAliases = [left.alias, right.alias];
         if (cypherEdgeAlias)
             selectAliases.push(cypherEdgeAlias);
         const selectCols = this.buildSelectColumns(parsed, ...selectAliases);
         const joinCondition = buildHopJoinCondition('e', left.alias, right.alias, direction);
-        const conditions = this.buildHopConditions(match, params);
-        this.addWhereConditions(parsed.where, conditions, params);
-        const optJoin = parsed.optionalMatch ? buildOptionalHopJoin(parsed.optionalMatch, left.alias) : '';
+        // Build the optional JOIN fragment first so its params (e.g. edge-type ?)
+        // can be prepended before the WHERE-clause params, matching SQL document order.
+        const optJoinParams = [];
+        const optJoin = parsed.optionalMatch
+            ? buildOptionalHopJoin(parsed.optionalMatch, left.alias, optJoinParams)
+            : '';
+        const whereParams = [];
+        const conditions = this.buildHopConditions(match, whereParams);
+        this.addWhereConditions(parsed.where, conditions, whereParams);
         const rightJoinCol = direction === 'outbound' ? 'e.target_id' : 'e.source_id';
         const orderBy = buildOrderBy(parsed.orderBy);
         const distinct = parsed.isDistinct ? 'DISTINCT ' : '';
@@ -217,7 +227,7 @@ export class CypherEngine {
             `LIMIT ?`,
             parsed.offset > 0 ? `OFFSET ?` : '',
         ].filter(Boolean).join(' ');
-        params.push(parsed.limit + 1);
+        const params = [...optJoinParams, ...whereParams, parsed.limit + 1];
         if (parsed.offset > 0)
             params.push(parsed.offset);
         return { text: sql, params };
@@ -232,9 +242,16 @@ export class CypherEngine {
         };
         const startCtx = { left, projectName: this.projectName };
         const startConditions = buildVarpathStartConditions(startCtx, parsed.where, params, resolvers);
-        const endConditions = buildVarpathEndConditions(right, parsed.where, params, resolvers);
+        // End-condition SQL fragments are collected here; their params are pushed AFTER
+        // maxHops/minHops below so the bind order matches SQL document order (anchor WHERE
+        // → recursive JOIN ON → r.depth < ? → r2.depth >= ? / <= ? → endWhere → LIMIT).
+        const endParams = [];
+        const endConditions = buildVarpathEndConditions(right, parsed.where, endParams, resolvers);
         const rawSelectParts = buildVarpathSelectParts(parsed.returnFields, left.alias, right.alias, (alias, p) => resolveColumnExpression(alias, p));
-        const typeFilter = edgeType ? `AND e.type = '${sanitizeIdentifier(edgeType)}'` : '';
+        // edgeType ? in the recursive JOIN ON — must be pushed before the r.depth < ? (maxHops) param.
+        const typeFilter = edgeType ? `AND e.type = ?` : '';
+        if (edgeType)
+            params.push(edgeType);
         const nextNode = direction === 'outbound' ? 'e.target_id' : 'e.source_id';
         const edgeJoin = direction === 'outbound'
             ? `e.source_id = r.current_id ${typeFilter}`
@@ -243,7 +260,9 @@ export class CypherEngine {
         const selectParts = rawSelectParts.length === 0 ? ['n_end.*'] : rawSelectParts;
         const rawSql = buildVarpathSqlTemplate({ startConditions, nextNode, edgeJoin, endWhere, distinct: parsed.isDistinct ? 'DISTINCT ' : '', selectParts, orderBy: buildOrderBy(parsed.orderBy) });
         const sql = parsed.offset > 0 ? `${rawSql} OFFSET ?` : rawSql;
-        params.push(maxHops, minHops, maxHops, parsed.limit + 1);
+        // Push in SQL document order: r.depth < maxHops, r2.depth >= minHops, r2.depth <= maxHops,
+        // then endParams (endWhere conditions), then LIMIT, then OFFSET.
+        params.push(maxHops, minHops, maxHops, ...endParams, parsed.limit + 1);
         if (parsed.offset > 0)
             params.push(parsed.offset);
         return { text: sql, params };

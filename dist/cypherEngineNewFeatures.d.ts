@@ -14,8 +14,11 @@ export declare function parseMultiPattern(matchStr: string): HopPattern[] | null
 /**
  * Build the LEFT JOIN SQL fragment for an OPTIONAL MATCH hop.
  * Returns empty string if om is not a hop pattern.
+ * When om.edgeType is set, pushes the type value onto `params` and emits `?`
+ * instead of an inline literal — matches the bound-parameter idiom used by
+ * buildNotExistsSql and addNodeDegreeConditions.
  */
-export declare function buildOptionalHopJoin(om: MatchPattern, leftAlias: string): string;
+export declare function buildOptionalHopJoin(om: MatchPattern, leftAlias: string, params: unknown[]): string;
 export interface UnwindSqlContext {
     parsed: ParsedQuery;
     unwind: UnwindClause;

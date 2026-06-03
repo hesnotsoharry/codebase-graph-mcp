@@ -47,16 +47,21 @@ export function parseMultiPattern(matchStr: string): HopPattern[] | null {
 /**
  * Build the LEFT JOIN SQL fragment for an OPTIONAL MATCH hop.
  * Returns empty string if om is not a hop pattern.
+ * When om.edgeType is set, pushes the type value onto `params` and emits `?`
+ * instead of an inline literal — matches the bound-parameter idiom used by
+ * buildNotExistsSql and addNodeDegreeConditions.
  */
-export function buildOptionalHopJoin(om: MatchPattern, leftAlias: string): string {
+export function buildOptionalHopJoin(om: MatchPattern, leftAlias: string, params: unknown[]): string {
   if (om.kind !== 'hop') return '';
   const edgeAlias = 'e_opt';
   const rightAlias = om.right.alias || '_opt_r';
   const srcCol = om.direction === 'outbound' ? 'source_id' : 'target_id';
   const tgtCol = om.direction === 'outbound' ? 'target_id' : 'source_id';
-  const edgeTypeCond = om.edgeType
-    ? ` AND ${edgeAlias}.type = '${sanitizeIdentifier(om.edgeType)}'`
-    : '';
+  let edgeTypeCond = '';
+  if (om.edgeType) {
+    params.push(om.edgeType);
+    edgeTypeCond = ` AND ${edgeAlias}.type = ?`;
+  }
   return (
     `LEFT JOIN edges ${edgeAlias} ON ${edgeAlias}.${srcCol} = ${leftAlias}.id${edgeTypeCond} ` +
     `LEFT JOIN nodes ${rightAlias} ON ${rightAlias}.id = ${edgeAlias}.${tgtCol}`

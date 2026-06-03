@@ -8,11 +8,12 @@
 /** Build the BFS SQL and run it. Returns rows with id/depth/path. */
 export function runBfsTraversal(db, opts) {
     const { startNodeId, edgeTypes, direction, maxDepth, maxNodes = 200, minConfidence } = opts;
-    const typeList = edgeTypes.map((t) => `'${t}'`).join(',');
-    const confidenceClause = minConfidence !== undefined && minConfidence > 0 ? ` AND e.confidence >= ${minConfidence}` : '';
+    const typePlaceholders = edgeTypes.map(() => '?').join(',');
+    const applyConfidence = minConfidence !== undefined && minConfidence > 0;
+    const confidenceClause = applyConfidence ? ' AND e.confidence >= ?' : '';
     const edgeCondition = direction === 'outbound'
-        ? `e.source_id = r.id AND e.type IN (${typeList})${confidenceClause}`
-        : `e.target_id = r.id AND e.type IN (${typeList})${confidenceClause}`;
+        ? `e.source_id = r.id AND e.type IN (${typePlaceholders})${confidenceClause}`
+        : `e.target_id = r.id AND e.type IN (${typePlaceholders})${confidenceClause}`;
     const nextNode = direction === 'outbound' ? 'e.target_id' : 'e.source_id';
     // Cycle detection: per-row visited set stored in `path` as a JSON array.
     // Anchor seeds with json_array(start_id). Recursive step appends the next
@@ -37,7 +38,15 @@ export function runBfsTraversal(db, opts) {
     ORDER BY depth
     LIMIT ?
   `;
-    const rows = db.prepare(sql).all(startNodeId, startNodeId, maxDepth, maxNodes);
+    // Bind order matches SQL document order: anchor (?,?) → edgeTypes IN (?,...)
+    // → [confidence ?] (only when applyConfidence) → r.depth < ? (maxDepth) → LIMIT ? (maxNodes).
+    // confidenceClause sits inside the recursive JOIN ON, after IN(?,…) and before WHERE r.depth < ?,
+    // so minConfidence must be inserted between edgeTypes and maxDepth when active.
+    const allArgs = [startNodeId, startNodeId, ...edgeTypes];
+    if (applyConfidence)
+        allArgs.push(minConfidence);
+    allArgs.push(maxDepth, maxNodes);
+    const rows = db.prepare(sql).all(...allArgs);
     return rows.map((r) => ({ id: r.id, depth: r.depth, path: JSON.parse(r.path) }));
 }
 // ─── Single-node degree query ─────────────────────────────────────────────────

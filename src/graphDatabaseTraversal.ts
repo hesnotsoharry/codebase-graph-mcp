@@ -27,13 +27,13 @@ export function runBfsTraversal(
   opts: BfsOptions,
 ): Array<{ id: string; depth: number; path: string[] }> {
   const { startNodeId, edgeTypes, direction, maxDepth, maxNodes = 200, minConfidence } = opts;
-  const typeList = edgeTypes.map((t) => `'${t}'`).join(',');
-  const confidenceClause =
-    minConfidence !== undefined && minConfidence > 0 ? ` AND e.confidence >= ${minConfidence}` : '';
+  const typePlaceholders = edgeTypes.map(() => '?').join(',');
+  const applyConfidence = minConfidence !== undefined && minConfidence > 0;
+  const confidenceClause = applyConfidence ? ' AND e.confidence >= ?' : '';
   const edgeCondition =
     direction === 'outbound'
-      ? `e.source_id = r.id AND e.type IN (${typeList})${confidenceClause}`
-      : `e.target_id = r.id AND e.type IN (${typeList})${confidenceClause}`;
+      ? `e.source_id = r.id AND e.type IN (${typePlaceholders})${confidenceClause}`
+      : `e.target_id = r.id AND e.type IN (${typePlaceholders})${confidenceClause}`;
   const nextNode = direction === 'outbound' ? 'e.target_id' : 'e.source_id';
 
   // Cycle detection: per-row visited set stored in `path` as a JSON array.
@@ -60,7 +60,14 @@ export function runBfsTraversal(
     LIMIT ?
   `;
 
-  const rows = db.prepare(sql).all(startNodeId, startNodeId, maxDepth, maxNodes) as Array<{
+  // Bind order matches SQL document order: anchor (?,?) → edgeTypes IN (?,...)
+  // → [confidence ?] (only when applyConfidence) → r.depth < ? (maxDepth) → LIMIT ? (maxNodes).
+  // confidenceClause sits inside the recursive JOIN ON, after IN(?,…) and before WHERE r.depth < ?,
+  // so minConfidence must be inserted between edgeTypes and maxDepth when active.
+  const allArgs: unknown[] = [startNodeId, startNodeId, ...edgeTypes];
+  if (applyConfidence) allArgs.push(minConfidence as number);
+  allArgs.push(maxDepth, maxNodes);
+  const rows = db.prepare(sql).all(...allArgs) as Array<{
     id: string;
     depth: number;
     path: string;

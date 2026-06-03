@@ -1,9 +1,22 @@
 ---
-status: OPEN
+status: RESOLVED
 created: 2026-06-02
+resolved: 2026-06-03
 qualifying-criterion: multi-file (3 SQL builders + test snapshots)
 cannot-be-cleared-by: single-sonnet-implementer-dispatch (requires cross-builder audit + coordinated refactoring)
 ---
+
+## Resolution (2026-06-03)
+
+All three edge-type SQL builders parameterized; adversarial review (attack-diff) cleared after two follow-up fixes. Delivered:
+
+- **`buildOptionalHopJoin`** (cypherEngineNewFeatures.ts) — gained a `params: unknown[]` accumulator arg; emits `?`, both call sites (singleNodeSql, singleHopSql) updated to merge optJoin params in SQL-document order.
+- **`varpathSql`** (cypherEngine.ts) — edge type bound as `?`; additionally fixed a **pre-existing** end-hop param-ordering bug (endParams were transposed relative to maxHops/minHops) discovered during the change, now covered by a dedicated endpoint-WHERE test.
+- **`runBfsTraversal`** (graphDatabaseTraversal.ts, the unsanitized highest-priority site) — edge types bound via `?` placeholders spread into `.all()` at the correct recursive-CTE position; `minConfidence` also parameterized (was a raw numeric interpolation of MCP-sourced input) under a single `applyConfidence` boolean that gates clause + param together (drift-immune).
+- **Audit:** exhaustive grep confirmed no other edge-type inline-literal sites remain.
+- **Tests:** new `graphDatabaseTraversal.test.ts` (BFS exact-set + injection-safety + minConfidence filter); extended varpath + buildOptionalHopJoin coverage with negative-literal guards. Full suite 898 passed / 3 skipped; typecheck + build clean.
+
+Out of scope / not done: nothing outstanding. (`confidenceClause` numeric interpolation — originally noted as out-of-threat-model — was parameterized anyway for defense-in-depth.)
 
 # Parameterize remaining edge-type SQL builders (SQL injection hardening, Phase 2 follow-up)
 

@@ -570,6 +570,69 @@ describe('CypherEngine — Wave 3 edge-type alternation in negated-existence', (
   });
 });
 
+// ─── Wave 3: varpath silently dropped NOT clause → explicit error ────────────
+// Acceptance test (orchestrator-authored, Phase 2). Must NOT be modified by the
+// implementer. Today buildVarpathStartConditions/buildVarpathEndConditions
+// (cypherEngineVarpath.ts:41,68) `continue` past negated_existence conditions,
+// so this query SILENTLY drops the NOT and returns wrong results. After the fix
+// it must throw an explicit error naming the limitation (variable-length paths).
+
+const VARPATH_PROJECT = 'varpath-not-test';
+
+function seedVarpath(db: GraphDatabase): void {
+  db.upsertProject({
+    name: VARPATH_PROJECT,
+    root_path: '/tmp',
+    indexed_at: 1700000000000,
+    node_count: 3,
+    edge_count: 2,
+  });
+  const fn = (id: string, name: string, line: number) => ({
+    id,
+    project: VARPATH_PROJECT,
+    label: 'Function' as NodeLabel,
+    name,
+    qualified_name: `${VARPATH_PROJECT}.${name}`,
+    file_path: 'a.ts',
+    start_line: line,
+    end_line: line + 1,
+    props: {},
+  });
+  db.insertNodes([fn('a', 'a', 1), fn('b', 'b', 3), fn('c', 'c', 5)]);
+  db.insertEdges([
+    { project: VARPATH_PROJECT, source_id: 'a', target_id: 'b', type: 'CALLS', props: {} },
+    { project: VARPATH_PROJECT, source_id: 'b', target_id: 'c', type: 'CALLS', props: {} },
+  ]);
+}
+
+describe('CypherEngine — Wave 3 varpath + negated-existence (fail loud)', () => {
+  let db: GraphDatabase;
+  let engine: CypherEngine;
+
+  beforeEach(() => {
+    db = new GraphDatabase(':memory:');
+    seedVarpath(db);
+    engine = new CypherEngine(db, VARPATH_PROJECT);
+  });
+  afterEach(() => db.close());
+
+  it('throws an explicit error (does NOT silently drop) when a varpath query carries a NOT clause', () => {
+    expect(() =>
+      engine.execute(
+        'MATCH (x:Function)-[:CALLS*1..3]->(y:Function) WHERE NOT ()-[:CALLS]->(y) RETURN y.name',
+      ),
+    ).toThrow(/variable-length/i);
+  });
+
+  it('a varpath query WITHOUT a negated clause still works (no false throw)', () => {
+    const r = engine.execute(
+      'MATCH (x:Function)-[:CALLS*1..3]->(y:Function) RETURN y.name',
+    );
+    // sanity: regression guard that the throw is scoped to NOT-bearing varpath queries only
+    expect(Array.isArray(r.rows)).toBe(true);
+  });
+});
+
 // ─── Pagination / truncated flag (>200 rows) ─────────────────────────────────
 
 const PAGINATION_PROJECT = 'pagination-test';

@@ -38,7 +38,15 @@ export function buildVarpathStartConditions(
   }
 
   for (const cond of where) {
-    if (cond.kind === 'negated_existence') continue; // varpath doesn't handle NOT EXISTS patterns
+    // Fail loud, never silently drop (Wave 3 Locked Decision 1). INVARIANT: these two
+    // builders are the ONLY negated-existence handlers on the varpath path. varpathSql
+    // (cypherEngine.ts) must NOT delegate WHERE-handling to addWhereConditions, which
+    // builds NOT EXISTS SQL and would silently bypass this guard.
+    if (cond.kind === 'negated_existence') {
+      throw new Error(
+        'Negated-existence (NOT ...) conditions are not supported in variable-length path queries.',
+      );
+    }
     if (cond.alias === left.alias) {
       const expr = resolvers.resolveColumnExpression('n_start', cond.property);
       const sqlOp = resolvers.cypherOpToSql(cond.operator);
@@ -65,7 +73,15 @@ export function buildVarpathEndConditions(
   }
 
   for (const cond of where) {
-    if (cond.kind === 'negated_existence') continue; // varpath doesn't handle NOT EXISTS patterns
+    // Fail loud, never silently drop (Wave 3 Locked Decision 1). INVARIANT: these two
+    // builders are the ONLY negated-existence handlers on the varpath path. varpathSql
+    // (cypherEngine.ts) must NOT delegate WHERE-handling to addWhereConditions, which
+    // builds NOT EXISTS SQL and would silently bypass this guard.
+    if (cond.kind === 'negated_existence') {
+      throw new Error(
+        'Negated-existence (NOT ...) conditions are not supported in variable-length path queries.',
+      );
+    }
     if (cond.alias === right.alias) {
       const expr = resolvers.resolveColumnExpression('n_end', cond.property);
       const sqlOp = resolvers.cypherOpToSql(cond.operator);

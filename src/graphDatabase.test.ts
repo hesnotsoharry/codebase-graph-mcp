@@ -531,6 +531,84 @@ describe('GraphDatabase', () => {
     });
   });
 
+  // ─── Wave 4 Phase 2: union relationship types (oracle) ──────────────
+
+  describe('Wave 4 Phase 2 — searchNodes union relationship types', () => {
+    beforeEach(() => {
+      db.upsertProject(makeProject());
+      db.insertNodes([
+        // Function A (has inbound CALLS edge only)
+        makeNode({ id: 'funcA', qualified_name: 'funcA', name: 'funcA' }),
+        // Function B (target of async call from A; has zero inbound CALLS edges)
+        makeNode({ id: 'funcB', qualified_name: 'funcB', name: 'funcB' }),
+        // Function C (genuinely zero-degree: no inbound edges at all)
+        makeNode({ id: 'funcC', qualified_name: 'funcC', name: 'funcC' }),
+        // Function D (source for CALLS edge to funcA)
+        makeNode({ id: 'funcD', qualified_name: 'funcD', name: 'funcD' }),
+      ]);
+      // D --[CALLS]--> A (A has 1 inbound CALLS)
+      // A --[ASYNC_CALLS]--> B (B has 1 inbound ASYNC_CALLS, 0 inbound CALLS)
+      // C has no inbound edges
+      db.insertEdges([
+        makeEdge({ source_id: 'funcD', target_id: 'funcA', type: 'CALLS' }),
+        makeEdge({ source_id: 'funcA', target_id: 'funcB', type: 'ASYNC_CALLS' }),
+      ]);
+    });
+
+    it('(REGRESSION) single-type CALLS with max_degree=0 inbound finds funcB and funcC (zero CALLS inbound) but NOT funcD or funcA', () => {
+      // Before Phase 2: relationship is a single type string
+      // funcA has 1 inbound CALLS edge (from funcD), so excluded
+      // funcB has 0 inbound CALLS edges (has ASYNC_CALLS instead), so INCLUDED
+      // funcC has 0 inbound edges at all, so INCLUDED
+      // funcD has 0 inbound CALLS edges (no inbound edges), so INCLUDED
+      // So we expect funcB, funcC, funcD (all with zero CALLS inbound)
+      const result = db.searchNodes({
+        relationship: 'CALLS',
+        direction: 'inbound',
+        maxDegree: 0,
+      });
+      const ids = result.nodes.map((n) => n.id).sort();
+      expect(ids).toContain('funcB');
+      expect(ids).toContain('funcC');
+      expect(ids).not.toContain('funcA'); // funcA has 1 inbound CALLS
+    });
+
+    it('(UNION) pipe-delimited relationship "CALLS|ASYNC_CALLS" with max_degree=0 inbound finds only funcC and funcD (zero across both types)', () => {
+      // Phase 2: relationship can be a union of types supplied as pipe-delimited string
+      // With the union, counts inbound edges of BOTH types:
+      // funcA has 1 inbound CALLS, so excluded
+      // funcB has 1 inbound ASYNC_CALLS, so excluded
+      // funcC has 0 inbound edges (neither type), so INCLUDED
+      // funcD has 0 inbound edges (neither type), so INCLUDED
+      // Expected: funcC and funcD
+      const result = db.searchNodes({
+        relationship: 'CALLS|ASYNC_CALLS' as any,
+        direction: 'inbound',
+        maxDegree: 0,
+      });
+      const ids = result.nodes.map((n) => n.id).sort();
+      expect(ids).toContain('funcC');
+      expect(ids).toContain('funcD');
+      expect(ids).not.toContain('funcA'); // funcA has 1 inbound CALLS
+      expect(ids).not.toContain('funcB'); // funcB has 1 inbound ASYNC_CALLS
+    });
+
+    it('(UNION) array-form relationship ["CALLS","ASYNC_CALLS"] with max_degree=0 inbound finds only funcC and funcD', () => {
+      // Phase 2 alternate form: relationship can be supplied as an array of types
+      // Same logic as pipe-delimited form
+      const result = db.searchNodes({
+        relationship: ['CALLS', 'ASYNC_CALLS'] as any,
+        direction: 'inbound',
+        maxDegree: 0,
+      });
+      const ids = result.nodes.map((n) => n.id).sort();
+      expect(ids).toContain('funcC');
+      expect(ids).toContain('funcD');
+      expect(ids).not.toContain('funcA'); // funcA has 1 inbound CALLS
+      expect(ids).not.toContain('funcB'); // funcB has 1 inbound ASYNC_CALLS
+    });
+  });
+
   // ─── BFS traversal ─────────────────────────────────────────────────
 
   describe('bfsTraversal', () => {

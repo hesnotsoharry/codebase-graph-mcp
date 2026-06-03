@@ -485,6 +485,91 @@ describe('CypherEngine — WHERE NOT negated existence (Wave 1 Phase 2)', () => 
   });
 });
 
+// ─── Wave 3: edge-type alternation in negated-existence ──────────────────────
+// Acceptance test (orchestrator-authored, Phase 1). Must NOT be modified by the
+// implementer. Today `[:CALLS|ASYNC_CALLS]` does not parse, so the alternation
+// case fails; the single-type contrast case documents the false-positive being fixed.
+
+const ALT_PROJECT = 'alternation-test';
+
+/**
+ * Seed three functions exercising the call-edge taxonomy:
+ *   - syncCalled:  inbound CALLS only            (called synchronously)
+ *   - asyncCalled: inbound ASYNC_CALLS only      (called ONLY via await — the false-positive case)
+ *   - deadFn:      no inbound call edge of any kind (genuinely uncalled)
+ */
+function seedAlternation(db: GraphDatabase): void {
+  db.upsertProject({
+    name: ALT_PROJECT,
+    root_path: '/tmp',
+    indexed_at: 1700000000000,
+    node_count: 4,
+    edge_count: 2,
+  });
+  const fn = (id: string, name: string, line: number) => ({
+    id,
+    project: ALT_PROJECT,
+    label: 'Function' as NodeLabel,
+    name,
+    qualified_name: `${ALT_PROJECT}.${name}`,
+    file_path: 'a.ts',
+    start_line: line,
+    end_line: line + 1,
+    props: {},
+  });
+  db.insertNodes([
+    fn('caller', 'caller', 1),
+    fn('syncCalled', 'syncCalled', 3),
+    fn('asyncCalled', 'asyncCalled', 5),
+    fn('deadFn', 'deadFn', 7),
+  ]);
+  db.insertEdges([
+    { project: ALT_PROJECT, source_id: 'caller', target_id: 'syncCalled', type: 'CALLS', props: {} },
+    { project: ALT_PROJECT, source_id: 'caller', target_id: 'asyncCalled', type: 'ASYNC_CALLS', props: {} },
+  ]);
+}
+
+describe('CypherEngine — Wave 3 edge-type alternation in negated-existence', () => {
+  let db: GraphDatabase;
+  let engine: CypherEngine;
+
+  beforeEach(() => {
+    db = new GraphDatabase(':memory:');
+    seedAlternation(db);
+    engine = new CypherEngine(db, ALT_PROJECT);
+  });
+  afterEach(() => db.close());
+
+  it('NOT ()-[:CALLS|ASYNC_CALLS]->(n) excludes BOTH sync- and async-called fns (no false positive)', () => {
+    const r = engine.execute(
+      'MATCH (n:Function) WHERE NOT ()-[:CALLS|ASYNC_CALLS]->(n) RETURN n.name',
+    );
+    const names = r.rows.map((row) => row.n_name);
+    // Only genuinely-uncalled functions remain.
+    expect(names).toContain('deadFn');
+    expect(names).toContain('caller'); // caller is itself uncalled
+    // Both call kinds are negated → neither callee is flagged dead.
+    expect(names).not.toContain('syncCalled');
+    expect(names).not.toContain('asyncCalled');
+  });
+
+  it('single-type NOT ()-[:CALLS]->(n) still FALSE-POSITIVES asyncCalled (documents the bug alternation fixes)', () => {
+    const r = engine.execute('MATCH (n:Function) WHERE NOT ()-[:CALLS]->(n) RETURN n.name');
+    const names = r.rows.map((row) => row.n_name);
+    // asyncCalled has no inbound CALLS edge → single-type query wrongly returns it.
+    expect(names).toContain('asyncCalled');
+    // syncCalled is correctly excluded by the single-type query.
+    expect(names).not.toContain('syncCalled');
+  });
+
+  it('single-type negated-existence behavior is unchanged (regression guard)', () => {
+    const r = engine.execute('MATCH (n:Function) WHERE NOT ()-[:CALLS]->(n) RETURN n.name');
+    const names = r.rows.map((row) => row.n_name);
+    expect(names).toContain('deadFn');
+    expect(names).not.toContain('syncCalled');
+  });
+});
+
 // ─── Pagination / truncated flag (>200 rows) ─────────────────────────────────
 
 const PAGINATION_PROJECT = 'pagination-test';

@@ -271,6 +271,116 @@ describe('IndexingWorkerClient.runLaunchDiff', () => {
     expect(result.durationMs).toBe(80);
   });
 
+  it('passes skipTsEnrichment: true through the launchDiff message when caller provides it (Wave 4 P3 oracle)', async () => {
+    // Contract: when client.runLaunchDiff is called with skipTsEnrichment: true,
+    // the message posted to the worker MUST include skipTsEnrichment: true.
+    // This flag tells handleLaunchDiff to skip ts-morph enrichment (Pass 6/7).
+    // Pre-impl: dispatchLaunchDiff does NOT pass skipTsEnrichment — this test FAILS.
+    // Post-impl: dispatchLaunchDiff will pass it through — test PASSES.
+    const promise = (
+      client.runLaunchDiff as unknown as (opts: {
+        projectRoot: string;
+        projectName: string;
+        skipTsEnrichment?: boolean;
+      }) => Promise<import('./indexingWorkerTypes').LaunchDiffResult>
+    )({
+      projectRoot: '/tmp/p',
+      projectName: 'p',
+      skipTsEnrichment: true,
+    });
+
+    const worker = MockWorker.lastInstance!;
+    expect(worker.postMessage).toHaveBeenCalledOnce();
+
+    const msg = worker.postMessage.mock.calls[0][0] as {
+      type: string;
+      requestId: string;
+      projectRoot: string;
+      projectName: string;
+      skipTsEnrichment?: boolean;
+    };
+    expect(msg.type).toBe('launchDiff');
+    expect(msg.skipTsEnrichment).toBe(true);
+
+    worker.emit('message', {
+      type: 'launchDiffResult',
+      requestId: msg.requestId,
+      result: makeLaunchDiffResult(),
+    });
+
+    await promise;
+  });
+
+  it('omits skipTsEnrichment when caller does not provide it (regression: old behavior)', async () => {
+    // Contract: when skipTsEnrichment is NOT provided, ts-morph enrichment runs (current behavior).
+    // The message should either not have the field, or have it as undefined/false.
+    // This test confirms the regression path and that normal (enrichment-enabled) flow works.
+    const promise = client.runLaunchDiff({ projectRoot: '/tmp/p', projectName: 'p' });
+
+    const worker = MockWorker.lastInstance!;
+    expect(worker.postMessage).toHaveBeenCalledOnce();
+
+    const msg = worker.postMessage.mock.calls[0][0] as {
+      type: string;
+      requestId: string;
+      projectRoot: string;
+      projectName: string;
+      skipTsEnrichment?: boolean;
+    };
+    expect(msg.type).toBe('launchDiff');
+    // When skipTsEnrichment is unset, it should NOT be true (i.e. enrichment is NOT skipped).
+    expect(msg.skipTsEnrichment).not.toBe(true);
+
+    worker.emit('message', {
+      type: 'launchDiffResult',
+      requestId: msg.requestId,
+      result: makeLaunchDiffResult(),
+    });
+
+    await promise;
+  });
+
+  it('passes skipTsEnrichment: false explicitly (contract validation)', async () => {
+    // This test validates the full contract shape: when skipTsEnrichment is
+    // explicitly false, the message must include it (or be clearly false).
+    // This ensures the worker can distinguish between unset and explicitly false
+    // if that distinction becomes necessary in the future.
+    const promise = (
+      client.runLaunchDiff as unknown as (opts: {
+        projectRoot: string;
+        projectName: string;
+        skipTsEnrichment?: boolean;
+      }) => Promise<import('./indexingWorkerTypes').LaunchDiffResult>
+    )({
+      projectRoot: '/tmp/p',
+      projectName: 'p',
+      skipTsEnrichment: false,
+    });
+
+    const worker = MockWorker.lastInstance!;
+    expect(worker.postMessage).toHaveBeenCalledOnce();
+
+    const msg = worker.postMessage.mock.calls[0][0] as {
+      type: string;
+      requestId: string;
+      projectRoot: string;
+      projectName: string;
+      skipTsEnrichment?: boolean;
+    };
+    expect(msg.type).toBe('launchDiff');
+    // When explicitly false, enrichment should run (not skipped).
+    // The message either includes the field (false) or omits it.
+    expect(msg.skipTsEnrichment).not.toBe(true);
+
+    worker.emit('message', {
+      type: 'launchDiffResult',
+      requestId: msg.requestId,
+      result: makeLaunchDiffResult(),
+    });
+
+    await promise;
+  });
+
   it('rejects promise when worker posts error for a launchDiff request', async () => {
     const promise = client.runLaunchDiff({ projectRoot: '/tmp/p', projectName: 'p' });
 

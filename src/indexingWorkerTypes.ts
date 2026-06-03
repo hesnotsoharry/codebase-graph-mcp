@@ -41,6 +41,8 @@ export interface LaunchDiffRequest {
   requestId: string;
   projectRoot: string;
   projectName: string;
+  /** When true, skip the ts-morph enrichment passes (Pass 6/7) for this diff index. Wired in Wave 4 Phase 3. */
+  skipTsEnrichment?: boolean;
 }
 
 export type IndexingWorkerRequest = IndexRepositoryRequest | DisposeRequest | LaunchDiffRequest;

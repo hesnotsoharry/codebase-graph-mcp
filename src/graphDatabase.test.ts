@@ -609,6 +609,87 @@ describe('GraphDatabase', () => {
     });
   });
 
+  // ─── Wave 4 Phase 2 — union degree filter hardening ──────────────────
+
+  describe('Wave 4 Phase 2 — union degree filter hardening', () => {
+    beforeEach(() => {
+      db.upsertProject(makeProject());
+      db.insertNodes([
+        // Degree hub: has both CALLS and ASYNC_CALLS inbound edges
+        makeNode({ id: 'hub', qualified_name: 'hub', name: 'hub' }),
+        // Single-type node: has only CALLS inbound
+        makeNode({ id: 'singleCall', qualified_name: 'singleCall', name: 'singleCall' }),
+        // Single-type node: has only ASYNC_CALLS inbound
+        makeNode({ id: 'singleAsync', qualified_name: 'singleAsync', name: 'singleAsync' }),
+        // Zero-degree node: no inbound edges
+        makeNode({ id: 'zeroDegree', qualified_name: 'zeroDegree', name: 'zeroDegree' }),
+        // Sources for edges
+        makeNode({ id: 'src1', qualified_name: 'src1', name: 'src1' }),
+        makeNode({ id: 'src2', qualified_name: 'src2', name: 'src2' }),
+        makeNode({ id: 'src3', qualified_name: 'src3', name: 'src3' }),
+      ]);
+      // Degree counts:
+      // hub: 2 inbound (1 CALLS from src1, 1 ASYNC_CALLS from src2)
+      // singleCall: 1 inbound CALLS (from src3)
+      // singleAsync: 0 inbound CALLS, 0 inbound ASYNC_CALLS (no edges)
+      // zeroDegree: 0 inbound (no edges)
+      db.insertEdges([
+        makeEdge({ source_id: 'src1', target_id: 'hub', type: 'CALLS' }),
+        makeEdge({ source_id: 'src2', target_id: 'hub', type: 'ASYNC_CALLS' }),
+        makeEdge({ source_id: 'src3', target_id: 'singleCall', type: 'CALLS' }),
+      ]);
+    });
+
+    it('(DUAL-BOUND UNION) dual minDegree + maxDegree with union relationship type', () => {
+      // This exercises addDegreeConditions double-push path:
+      // Both minDegree and maxDegree blocks call buildDegreeExpr and push union types,
+      // which previously caused "wrong number of bindings" error.
+      // Filtering for inbound edges with type CALLS|ASYNC_CALLS and degree in [1,2]:
+      // hub: 2 inbound (CALLS=1, ASYNC_CALLS=1), union count=2 → INCLUDED
+      // singleCall: 1 inbound CALLS, union count=1 → INCLUDED
+      // singleAsync: 0 inbound, union count=0 → EXCLUDED
+      // zeroDegree: 0 inbound, union count=0 → EXCLUDED
+      const result = db.searchNodes({
+        relationship: 'CALLS|ASYNC_CALLS',
+        direction: 'inbound',
+        minDegree: 1,
+        maxDegree: 3,
+      });
+      const ids = result.nodes.map((n) => n.id).sort();
+      expect(ids).toContain('hub'); // 2 inbound, within [1,3]
+      expect(ids).toContain('singleCall'); // 1 inbound CALLS, within [1,3]
+      expect(ids).not.toContain('singleAsync'); // 0 inbound
+      expect(ids).not.toContain('zeroDegree'); // 0 inbound
+    });
+
+    it('(ARRAY EMPTY-STRING NORMALIZATION) array with empty string behaves as single-type filter', () => {
+      // relationship: ['CALLS', ''] is normalized to ['CALLS'] via filter(Boolean),
+      // so it should behave identically to relationship: 'CALLS'
+      // Expected: nodes with inbound CALLS degree <= 0 (zero CALLS inbound):
+      // hub: 1 inbound CALLS → EXCLUDED
+      // singleCall: 1 inbound CALLS → EXCLUDED
+      // singleAsync: 0 inbound CALLS → INCLUDED
+      // zeroDegree: 0 inbound CALLS → INCLUDED
+      const resultArray = db.searchNodes({
+        relationship: ['CALLS', ''],
+        direction: 'inbound',
+        maxDegree: 0,
+      });
+      const resultSingle = db.searchNodes({
+        relationship: 'CALLS',
+        direction: 'inbound',
+        maxDegree: 0,
+      });
+      const idsArray = resultArray.nodes.map((n) => n.id).sort();
+      const idsSingle = resultSingle.nodes.map((n) => n.id).sort();
+      expect(idsArray).toEqual(idsSingle);
+      expect(idsArray).toContain('singleAsync');
+      expect(idsArray).toContain('zeroDegree');
+      expect(idsArray).not.toContain('hub');
+      expect(idsArray).not.toContain('singleCall');
+    });
+  });
+
   // ─── BFS traversal ─────────────────────────────────────────────────
 
   describe('bfsTraversal', () => {

@@ -190,7 +190,7 @@ export function normalizeRelationshipTypes(
   relationship: NodeFilter['relationship'],
 ): string[] {
   if (!relationship) return [];
-  if (Array.isArray(relationship)) return relationship;
+  if (Array.isArray(relationship)) return relationship.filter(Boolean);
   if (typeof relationship === 'string' && relationship.includes('|')) {
     return relationship.split('|').filter(Boolean);
   }

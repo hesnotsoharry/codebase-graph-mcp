@@ -1,9 +1,12 @@
 ---
-status: OPEN
+status: RESOLVED
 created: 2026-06-02
+resolved: 2026-06-02
 origin: meta wave M-48 (declared-but-never-wired audit)
 priority: low
 ---
+
+> **RESOLVED 2026-06-02.** Decision: DROP verify-wave from this repo's auto-default (it works here — dead-export scan runtime-validated, 185 candidates under the row cap — but output is noisy: test helpers + entrypoints). Aligns with M-48 global demote. Opt-in migrated to the new tracked root `CLAUDE.md` § Meta/Process (run-phase + wrap-wave auto; verify-wave manual-only, with the runtime-validated note). Stale memory file `use-workflow-pipeline-default.md` deleted + MEMORY.md index updated. verify-wave engine confirmed capable via live `query_graph` smoke this session.
 
 # Reconcile the project's "auto-run verify-wave" memory with meta's M-48 demote
 

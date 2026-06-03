@@ -152,6 +152,7 @@ export class IndexingWorkerClient {
             requestId,
             projectRoot: opts.projectRoot,
             projectName: opts.projectName,
+            skipTsEnrichment: opts.skipTsEnrichment,
         });
     }
     drainQueue() {

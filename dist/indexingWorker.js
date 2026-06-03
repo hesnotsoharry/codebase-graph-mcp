@@ -195,7 +195,9 @@ async function handleLaunchDiff(req) {
         log.info('[trace:worker.launchDiff] reindex triggered changedPaths=%d', stale.length);
         // Mirror handleIndexRepository: thread the ts-morph Project singleton so
         // Pass 6 runs on diff-triggered reindexes (Fix 1 — regression guard).
-        const tsMorphProject = getOrInitTsMorphProject(projectRoot);
+        // skipTsEnrichment is passed through; getOrInitTsMorphProject returns null
+        // when it's true, so Pass 6/7 no-op (Wave 4 P3).
+        const tsMorphProject = getOrInitTsMorphProject(projectRoot, req.skipTsEnrichment);
         await pl.index({
             projectRoot,
             projectName,

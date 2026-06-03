@@ -139,9 +139,43 @@ export function buildBaseConditions(filter, conditions, params) {
         params.push(`%${filter.filePath}%`);
     }
 }
-/** Build a degree sub-expression for the given direction and edge type. */
-export function buildDegreeExpr(edgeDir, edgeType) {
-    const typeClause = edgeType ? ' AND e.type = ?' : '';
+/**
+ * Normalize `NodeFilter.relationship` to a list of edge type strings.
+ * Accepts: undefined → []; single string → [str]; pipe-delimited → split;
+ * array → as-is. This is the single normalization point — callers push the
+ * returned array into the param list one element at a time.
+ */
+export function normalizeRelationshipTypes(relationship) {
+    if (!relationship)
+        return [];
+    if (Array.isArray(relationship))
+        return relationship.filter(Boolean);
+    if (typeof relationship === 'string' && relationship.includes('|')) {
+        return relationship.split('|').filter(Boolean);
+    }
+    return [relationship];
+}
+/** Build a degree sub-expression for the given direction and a list of edge types.
+ *  - 0 types → no type filter (count all edge types)
+ *  - 1 type  → `AND e.type = ?` (scalar equality, same shape as before)
+ *  - N types → `AND e.type IN (?, ?, ...)` with one placeholder per type
+ *
+ * The placeholder count ALWAYS equals the number of values the caller must push.
+ */
+export function buildDegreeExpr(edgeDir, edgeTypes) {
+    const types = Array.isArray(edgeTypes)
+        ? edgeTypes
+        : edgeTypes
+            ? [edgeTypes]
+            : [];
+    let typeClause = '';
+    if (types.length === 1) {
+        typeClause = ' AND e.type = ?';
+    }
+    else if (types.length > 1) {
+        const placeholders = types.map(() => '?').join(', ');
+        typeClause = ` AND e.type IN (${placeholders})`;
+    }
     if (edgeDir === 'inbound') {
         return `(SELECT COUNT(*) FROM edges e WHERE e.target_id = n.id${typeClause})`;
     }
@@ -155,18 +189,18 @@ export function addDegreeConditions(filter, conditions, params) {
     if (filter.minDegree === undefined && filter.maxDegree === undefined)
         return;
     const edgeDir = filter.direction ?? 'both';
-    const edgeType = filter.relationship;
+    const edgeTypes = normalizeRelationshipTypes(filter.relationship);
     if (filter.minDegree !== undefined) {
-        const degreeExpr = buildDegreeExpr(edgeDir, edgeType);
-        if (edgeType)
-            params.push(edgeType);
+        const degreeExpr = buildDegreeExpr(edgeDir, edgeTypes);
+        for (const t of edgeTypes)
+            params.push(t);
         conditions.push(`${degreeExpr} >= ?`);
         params.push(filter.minDegree);
     }
     if (filter.maxDegree !== undefined) {
-        const degreeExpr = buildDegreeExpr(edgeDir, edgeType);
-        if (edgeType)
-            params.push(edgeType);
+        const degreeExpr = buildDegreeExpr(edgeDir, edgeTypes);
+        for (const t of edgeTypes)
+            params.push(t);
         conditions.push(`${degreeExpr} <= ?`);
         params.push(filter.maxDegree);
     }

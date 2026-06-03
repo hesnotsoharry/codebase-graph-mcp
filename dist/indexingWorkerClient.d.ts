@@ -42,6 +42,7 @@ export declare class IndexingWorkerClient {
     runLaunchDiff(opts: {
         projectRoot: string;
         projectName: string;
+        skipTsEnrichment?: boolean;
     }): Promise<LaunchDiffResult>;
     /**
      * Check if indexing is currently in progress.

@@ -90,28 +90,31 @@ export function pushWhereParam(params, cond) {
 /**
  * Build the NOT EXISTS subquery fragment for a negated existence condition.
  * Returns a SQL fragment like:
- *   NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type = 'CALLS')
- *   NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type IN ('CALLS','ASYNC_CALLS'))
+ *   NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type = ?)
+ *   NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type IN (?,?))
  *
- * Single-type: emits `type = 'X'` (byte-identical to the pre-Wave-3 output).
- * Multi-type:  emits `type IN ('T1','T2',...)`.
- * No type:     omits the type filter entirely.
+ * Single-type: emits `type = ?` and pushes one edge-type value onto `params`.
+ * Multi-type:  emits `type IN (?,?,...)` and pushes one value per edge type.
+ * No type:     omits the type filter entirely (no params pushed).
  *
- * The fragment contains no bind parameters — the anchor id is referenced by column
- * name (e.g. `n.id`) so it stays correlated with the outer query row.
+ * Edge-type VALUES are bound as `?` parameters — never inlined as quoted literals.
+ * The anchor id is referenced by column name (e.g. `n.id`) so the subquery
+ * stays correlated with the outer query row; that reference is not parameterized.
  */
-export function buildNotExistsSql(cond) {
+export function buildNotExistsSql(cond, params) {
     const col = cond.anchorRole === 'target' ? 'target_id' : 'source_id';
     let typeFilter = '';
     if (cond.edgeTypes && cond.edgeTypes.length > 0) {
         if (cond.edgeTypes.length === 1) {
-            // Preserve the pre-Wave-3 `type = 'X'` form for a single type.
-            typeFilter = ` AND type = '${sanitizeIdentifier(cond.edgeTypes[0])}'`;
+            // Single type: emit `type = ?` and bind the value.
+            params.push(cond.edgeTypes[0]);
+            typeFilter = ` AND type = ?`;
         }
         else {
-            // Alternation: emit `type IN ('T1','T2',...)`.
-            const inList = cond.edgeTypes.map((t) => `'${sanitizeIdentifier(t)}'`).join(',');
-            typeFilter = ` AND type IN (${inList})`;
+            // Alternation: emit `type IN (?,?,...)` and bind each value in order.
+            for (const t of cond.edgeTypes)
+                params.push(t);
+            typeFilter = ` AND type IN (${cond.edgeTypes.map(() => '?').join(',')})`;
         }
     }
     return `NOT EXISTS (SELECT 1 FROM edges WHERE ${col} = ${sanitizeIdentifier(cond.anchorAlias)}.id${typeFilter})`;

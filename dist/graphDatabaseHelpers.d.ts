@@ -31,8 +31,21 @@ export declare function buildSearchAndStatsStatements(db: Database.Database): Re
 export declare function deleteOutboundEdgesOfType(db: Database.Database, project: string, sourceId: string, type: string): void;
 /** Build base conditions from simple NodeFilter properties. */
 export declare function buildBaseConditions(filter: NodeFilter, conditions: string[], params: unknown[]): void;
-/** Build a degree sub-expression for the given direction and edge type. */
-export declare function buildDegreeExpr(edgeDir: 'inbound' | 'outbound' | 'both', edgeType?: string): string;
+/**
+ * Normalize `NodeFilter.relationship` to a list of edge type strings.
+ * Accepts: undefined → []; single string → [str]; pipe-delimited → split;
+ * array → as-is. This is the single normalization point — callers push the
+ * returned array into the param list one element at a time.
+ */
+export declare function normalizeRelationshipTypes(relationship: NodeFilter['relationship']): string[];
+/** Build a degree sub-expression for the given direction and a list of edge types.
+ *  - 0 types → no type filter (count all edge types)
+ *  - 1 type  → `AND e.type = ?` (scalar equality, same shape as before)
+ *  - N types → `AND e.type IN (?, ?, ...)` with one placeholder per type
+ *
+ * The placeholder count ALWAYS equals the number of values the caller must push.
+ */
+export declare function buildDegreeExpr(edgeDir: 'inbound' | 'outbound' | 'both', edgeTypes?: string | string[]): string;
 /** Add degree conditions to the WHERE clause. */
 export declare function addDegreeConditions(filter: NodeFilter, conditions: string[], params: unknown[]): void;
 export declare function rowToNode(row: unknown): GraphNode;

@@ -22,17 +22,18 @@ export declare function pushWhereParam(params: unknown[], cond: ScalarWhereCondi
 /**
  * Build the NOT EXISTS subquery fragment for a negated existence condition.
  * Returns a SQL fragment like:
- *   NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type = 'CALLS')
- *   NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type IN ('CALLS','ASYNC_CALLS'))
+ *   NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type = ?)
+ *   NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type IN (?,?))
  *
- * Single-type: emits `type = 'X'` (byte-identical to the pre-Wave-3 output).
- * Multi-type:  emits `type IN ('T1','T2',...)`.
- * No type:     omits the type filter entirely.
+ * Single-type: emits `type = ?` and pushes one edge-type value onto `params`.
+ * Multi-type:  emits `type IN (?,?,...)` and pushes one value per edge type.
+ * No type:     omits the type filter entirely (no params pushed).
  *
- * The fragment contains no bind parameters — the anchor id is referenced by column
- * name (e.g. `n.id`) so it stays correlated with the outer query row.
+ * Edge-type VALUES are bound as `?` parameters — never inlined as quoted literals.
+ * The anchor id is referenced by column name (e.g. `n.id`) so the subquery
+ * stays correlated with the outer query row; that reference is not parameterized.
  */
-export declare function buildNotExistsSql(cond: NegatedExistenceCondition): string;
+export declare function buildNotExistsSql(cond: NegatedExistenceCondition, params: unknown[]): string;
 /** Safety: check if a query contains write operations. */
 export declare function isWriteQuery(query: string): boolean;
 /** Sanitize an identifier to prevent SQL injection in inline values. */

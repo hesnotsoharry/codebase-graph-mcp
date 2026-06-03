@@ -95,7 +95,7 @@ export interface NodeFilter {
     filePath?: string;
     minDegree?: number;
     maxDegree?: number;
-    relationship?: EdgeType;
+    relationship?: EdgeType | EdgeType[] | string | string[];
     direction?: 'inbound' | 'outbound' | 'both';
     excludeEntryPoints?: boolean;
     caseSensitive?: boolean;

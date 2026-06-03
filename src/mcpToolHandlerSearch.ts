@@ -93,7 +93,7 @@ export function runFilteredSearch(
     label: args.label as NodeLabel | undefined,
     namePattern,
     filePath: args.file_pattern as string | undefined,
-    relationship: args.relationship as EdgeType | undefined,
+    relationship: args.relationship as EdgeType | EdgeType[] | string | undefined,
     direction: args.direction as 'inbound' | 'outbound' | 'both' | undefined,
     minDegree: args.min_degree as number | undefined,
     maxDegree: args.max_degree as number | undefined,

@@ -81,7 +81,10 @@ Full best-practice-spectrum framing ONLY when 3+ axes are in genuine tension. --
 
 ## Status
 
-<!-- Per-phase rows added as work progresses: Phase | Dispatched | Completed | Commit SHA | Observation point hit -->
+| Phase | Dispatched | Completed | Commit SHA | Observation point hit |
+|---|---|---|---|---|
+| 1 | 2026-06-02 | 2026-06-02 | 1a1816a | Internal — no observation point (behavior-preserving; tsc clean, 86 touched tests green) |
+| 2 | 2026-06-02 | 2026-06-02 | (this commit) | Oracle (8b09665) green: search_graph union excludes async-only-called fns; single-type regression intact. tsc clean, 110 touched tests pass. Review FLAG (type-ergonomics) fixed inline. |
 
 ## Follow-up candidates
 

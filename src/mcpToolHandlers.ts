@@ -75,7 +75,21 @@ const TOOL_SCHEMAS = {
       label: { type: 'string' },
       project: { type: 'string' },
       file_pattern: { type: 'string' },
-      relationship: { type: 'string' },
+      relationship: {
+        oneOf: [
+          {
+            type: 'string',
+            description:
+              'Single edge type (e.g. "CALLS") or pipe-delimited union (e.g. "CALLS|ASYNC_CALLS"). Counts edges across all supplied types.',
+          },
+          {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Array form of edge-type union (e.g. ["CALLS","ASYNC_CALLS"]). Equivalent to the pipe-delimited string form.',
+          },
+        ],
+      },
       direction: { type: 'string', enum: ['inbound', 'outbound', 'both'] },
       min_degree: { type: 'number' },
       max_degree: { type: 'number' },
@@ -307,7 +321,7 @@ function buildSearchTools(context: GraphToolContext): McpToolDefinition[] {
     {
       name: 'search_graph',
       description:
-        'Symbol search (prefer over Grep). Pass query as the IDENTIFIER (PascalCase/camelCase, no spaces) — natural-language phrases return zero results. ✓ "ChatWorkbenchArtifactPane". ✗ "chat workbench artifact pane". Returns graph nodes with file:line + metadata. Grep returns text matches including comments; search_graph returns actual definitions.',
+        'Symbol search (prefer over Grep). Pass query as the IDENTIFIER (PascalCase/camelCase, no spaces) — natural-language phrases return zero results. ✓ "ChatWorkbenchArtifactPane". ✗ "chat workbench artifact pane". Returns graph nodes with file:line + metadata. Grep returns text matches including comments; search_graph returns actual definitions. The relationship parameter accepts a single edge type ("CALLS"), a pipe-delimited union ("CALLS|ASYNC_CALLS"), or an array (["CALLS","ASYNC_CALLS"]) — degree counts aggregate across all supplied types.',
       inputSchema: TOOL_SCHEMAS.search_graph,
       handler: async (a: Record<string, unknown>) =>
         safeText('Error searching graph', handleSearchGraph(a, context)),

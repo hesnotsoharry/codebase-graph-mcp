@@ -185,7 +185,7 @@ export interface NodeFilter {
   filePath?: string; // file path filter
   minDegree?: number; // minimum edge count
   maxDegree?: number; // maximum edge count
-  relationship?: EdgeType;
+  relationship?: EdgeType | EdgeType[] | string | string[]; // single, pipe-delimited "A|B", or array union
   direction?: 'inbound' | 'outbound' | 'both';
   excludeEntryPoints?: boolean;
   caseSensitive?: boolean;

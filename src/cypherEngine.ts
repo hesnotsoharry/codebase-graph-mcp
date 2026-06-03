@@ -350,8 +350,8 @@ export class CypherEngine {
     let prevConjunction: 'AND' | 'OR' | null = null;
     for (const cond of where) {
       if (cond.kind === 'negated_existence') {
-        // Negated existence: NOT EXISTS subquery — no bind params needed (correlated by alias.id).
-        mergeCondition(conditions, buildNotExistsSql(cond), prevConjunction);
+        // Negated existence: NOT EXISTS subquery — edge-type values are bound as ? params.
+        mergeCondition(conditions, buildNotExistsSql(cond, params), prevConjunction);
       } else {
         const expression = resolveColumnExpression(cond.alias, cond.property);
         const sqlOp = cypherOpToSql(cond.operator);

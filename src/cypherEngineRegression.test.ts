@@ -18,6 +18,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CypherEngine } from './cypherEngine';
 import { GraphDatabase } from './graphDatabase';
 import type { BfsOptions } from './graphDatabaseTraversal';
+import { buildNotExistsSql } from './cypherEngineSqlHelpers';
+import type { NegatedExistenceCondition } from './cypherEngineSupport';
+import type { GraphNode } from './graphDatabaseTypes';
 
 const PROJECT = 'cypher-test';
 
@@ -259,5 +262,154 @@ describe('CypherEngine — Wave 20 BFS prefix-collision regression', () => {
     expect(rows.find((r) => r.id === 'src.auth')?.depth).toBe(1);
     expect(rows.find((r) => r.id === 'src.a')?.depth).toBe(2);
     expect(rows.find((r) => r.id === 'src.leaf')?.depth).toBe(3);
+  });
+});
+
+// ─── Wave 4 Phase 1: buildNotExistsSql parameterization regression ────────────
+// Verifies that edge-type VALUES are emitted as `?` placeholders and pushed onto
+// the params array, not inlined as quoted string literals.  Two axes:
+//   (a) End-to-end: the engine query result is byte-identical before and after.
+//   (b) SQL-shape:  buildNotExistsSql directly returns `?`-bearing SQL and
+//       populates the params array in the correct order.
+
+const W4_PROJECT = 'wave4-param-test';
+
+function seedWave4(db: GraphDatabase): void {
+  db.upsertProject({
+    name: W4_PROJECT,
+    root_path: '/tmp',
+    indexed_at: 1700000000000,
+    node_count: 4,
+    edge_count: 2,
+  });
+  function fn(id: string, name: string, line: number): GraphNode {
+    return {
+      id,
+      project: W4_PROJECT,
+      label: 'Function',
+      name,
+      qualified_name: `${W4_PROJECT}.${name}`,
+      file_path: 'f.ts',
+      start_line: line,
+      end_line: line + 1,
+      props: {},
+    };
+  }
+  db.insertNodes([fn('caller', 'caller', 1), fn('syncCalled', 'syncCalled', 3), fn('asyncCalled', 'asyncCalled', 5), fn('deadFn', 'deadFn', 7)]);
+  db.insertEdges([
+    { project: W4_PROJECT, source_id: 'caller', target_id: 'syncCalled', type: 'CALLS', props: {} },
+    { project: W4_PROJECT, source_id: 'caller', target_id: 'asyncCalled', type: 'ASYNC_CALLS', props: {} },
+  ]);
+}
+
+describe('Wave 4 Phase 1 — buildNotExistsSql parameter binding', () => {
+  // ── (b) Unit: SQL shape and bound-params ────────────────────────────────────
+
+  it('single edge type emits `type = ?` and pushes the type string as the sole bound param', () => {
+    const cond: NegatedExistenceCondition = {
+      kind: 'negated_existence',
+      anchorAlias: 'n',
+      anchorRole: 'target',
+      edgeTypes: ['CALLS'],
+      conjunction: null,
+    };
+    const params: unknown[] = [];
+    const sql = buildNotExistsSql(cond, params);
+
+    expect(sql).toBe('NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type = ?)');
+    expect(params).toEqual(['CALLS']);
+  });
+
+  it('two edge types emit `type IN (?,?)` and push both values in order', () => {
+    const cond: NegatedExistenceCondition = {
+      kind: 'negated_existence',
+      anchorAlias: 'n',
+      anchorRole: 'target',
+      edgeTypes: ['CALLS', 'ASYNC_CALLS'],
+      conjunction: null,
+    };
+    const params: unknown[] = [];
+    const sql = buildNotExistsSql(cond, params);
+
+    expect(sql).toBe('NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type IN (?,?))');
+    expect(params).toEqual(['CALLS', 'ASYNC_CALLS']);
+  });
+
+  it('no edge types emit no type filter and push no params', () => {
+    const cond: NegatedExistenceCondition = {
+      kind: 'negated_existence',
+      anchorAlias: 'n',
+      anchorRole: 'source',
+      edgeTypes: null,
+      conjunction: null,
+    };
+    const params: unknown[] = [];
+    const sql = buildNotExistsSql(cond, params);
+
+    expect(sql).toBe('NOT EXISTS (SELECT 1 FROM edges WHERE source_id = n.id)');
+    expect(params).toEqual([]);
+  });
+
+  it('empty edge types array emits no type filter and pushes no params (same as null)', () => {
+    const cond: NegatedExistenceCondition = {
+      kind: 'negated_existence',
+      anchorAlias: 'n',
+      anchorRole: 'source',
+      edgeTypes: [],
+      conjunction: null,
+    };
+    const params: unknown[] = [];
+    const sql = buildNotExistsSql(cond, params);
+
+    expect(sql).toBe('NOT EXISTS (SELECT 1 FROM edges WHERE source_id = n.id)');
+    expect(params).toEqual([]);
+  });
+
+  it('SQL fragment contains no inline quoted type literals (no single-quoted uppercase words)', () => {
+    const cond: NegatedExistenceCondition = {
+      kind: 'negated_existence',
+      anchorAlias: 'n',
+      anchorRole: 'target',
+      edgeTypes: ['CALLS', 'ASYNC_CALLS'],
+      conjunction: null,
+    };
+    const sql = buildNotExistsSql(cond, []);
+    // Must not contain patterns like 'CALLS' or 'ASYNC_CALLS' as inlined quoted literals.
+    expect(sql).not.toMatch(/'[A-Z_]+'/);
+  });
+
+  // ── (a) End-to-end: query results are byte-identical ────────────────────────
+
+  let db: GraphDatabase;
+  let engine: CypherEngine;
+
+  beforeEach(() => {
+    db = new GraphDatabase(':memory:');
+    seedWave4(db);
+    engine = new CypherEngine(db, W4_PROJECT);
+  });
+  afterEach(() => db.close());
+
+  it('NOT ()-[:CALLS|ASYNC_CALLS]->(n) with bound params returns identical rows to the Wave 3 alternation baseline', () => {
+    const r = engine.execute(
+      'MATCH (n:Function) WHERE NOT ()-[:CALLS|ASYNC_CALLS]->(n) RETURN n.name',
+    );
+    const names = r.rows.map((row) => row.n_name);
+    // deadFn and caller have no inbound edge of either type → included.
+    expect(names).toContain('deadFn');
+    expect(names).toContain('caller');
+    // syncCalled has inbound CALLS → excluded.
+    expect(names).not.toContain('syncCalled');
+    // asyncCalled has inbound ASYNC_CALLS → excluded (this was the false-positive under single-type).
+    expect(names).not.toContain('asyncCalled');
+  });
+
+  it('single-type NOT ()-[:CALLS]->(n) with bound params still returns correct rows', () => {
+    const r = engine.execute('MATCH (n:Function) WHERE NOT ()-[:CALLS]->(n) RETURN n.name');
+    const names = r.rows.map((row) => row.n_name);
+    // asyncCalled has no inbound CALLS edge → included by single-type query.
+    expect(names).toContain('asyncCalled');
+    // syncCalled has inbound CALLS → excluded.
+    expect(names).not.toContain('syncCalled');
   });
 });

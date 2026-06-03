@@ -51,7 +51,7 @@ MCP server that builds a code knowledge graph (SQLite-backed) from a repository 
 
 ## Known Tech Debt
 
-- **Server version literal is stale.** `src/index.ts:21` hardcodes `version: '0.2.2'` in the `McpServer` constructor while `package.json` is `0.5.0`. Cosmetic (MCP metadata only), but sync it at release time — the SDK does not auto-read `package.json`.
+- **Server version literal is manual.** `src/index.ts` hardcodes the `McpServer` constructor `version` (the SDK does not auto-read `package.json`). Synced to `0.6.0` at the v0.6.0 release. Cosmetic (MCP metadata only), but re-sync both at every release.
 - **No lint/typecheck scripts.** Neither is a named `package.json` script (see Commands). Intentional for now; don't "helpfully" add a `lint` script without an ESLint config to back it.
 
 ## Meta / Process

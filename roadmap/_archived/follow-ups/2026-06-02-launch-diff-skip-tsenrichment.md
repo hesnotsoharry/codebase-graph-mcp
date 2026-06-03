@@ -1,6 +1,7 @@
 ---
 title: Thread skipTsEnrichment flag through launch-diff IPC contract
-status: OPEN
+status: RESOLVED
+resolved-during: wave-4-edge-type-hygiene-launchdiff-skip
 created: 2026-06-02
 updated: 2026-06-02
 qualifying-criterion: schema (crosses LaunchDiffRequest IPC contract)
@@ -33,3 +34,9 @@ However, `handleLaunchDiff` calls `getOrInitTsMorphProject(projectRoot)` **witho
 - Decision 3 in Wave 2 ADR: `skipTsEnrichment` as mandatory escape valve for CPU-heavy work
 - Phase 1 commit: `feat(enrich): ts-morph worker lifecycle + skip flag + edge-supersession db method`
 - Bounded scope: startup-only, affects incremental state refresh only
+
+## Resolution (wave-4-edge-type-hygiene-launchdiff-skip)
+
+Closed by `haiku-followup-auditor` during wave audit on 2026-06-02.
+
+Evidence: Oracle test (b26bbbb) green, implementation (9fb5ce9) threads `skipTsEnrichment` from `LaunchDiffRequest` through `handleLaunchDiff` to `getOrInitTsMorphProject`, conditional-returning null to skip ts-morph enrichment passes (Pass 6/7). IPC contract extended with optional field, backward-compatible (unset = default behavior enabled). Wave result states: "launch-diff serializes skipTsEnrichment to worker. handleLaunchDiff threads flag → null ts-morph project → Pass 6/7 skip."

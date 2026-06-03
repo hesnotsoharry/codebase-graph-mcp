@@ -1,9 +1,12 @@
 ---
-status: OPEN
+status: RESOLVED
 created: 2026-06-02
+resolved: 2026-06-02
 qualifying-criterion: multi-file (Cypher SQL emitter + SQL builder + test snapshot)
 cannot-be-cleared-by: sonnet-implementer-dispatch
 ---
+
+> **RESOLVED 2026-06-02 by Wave 4 Phase 1** (commit `1a1816a`). `buildNotExistsSql` now binds edge types as `?` parameters (no inline literals); all four directional forms + single-type regression covered by tests in `cypherEngineRegression.test.ts`; tsc clean, full suite green. Scope item 2 ("audit related SQL builders") surfaced 3 remaining inline-literal sites (`cypherEngine.ts:299`, `cypherEngineNewFeatures.ts:58`, `graphDatabaseTraversal.ts:30`) — tracked in the new follow-up `2026-06-02-parameterize-remaining-edge-type-sql-builders.md`.
 
 # Parameterize edge-type list in buildNotExistsSql (SQL injection hardening)
 

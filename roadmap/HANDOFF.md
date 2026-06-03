@@ -4,22 +4,21 @@ updated: 2026-06-02
 ---
 
 ## Current state
-- Branch: main · Latest commit: 2cc8785 (v0.4.1 shipped) · Tag: v0.4.1
-- Active wave: none · Status: between waves · Full suite: 855 passed / 3 skipped
-- v0.4.1: parse-anomaly detector fix — parseAnomalies = real tree-sitter errors, not zero-symbol files
+- Branch: main · Latest commit: 4e3a521 · Tag: v0.5.0
+- Active wave: none · Status: between waves (Wave 3 shipped)
 
 ## Next 3 steps
-1. Restart Claude Code sessions to pick up v0.4.1 (codebase_graph MCP server runs dist/index.js)
-2. Monitor open follow-ups: launch-diff skipTsEnrichment contract issue + Wave 1 http-edges false-positive watch
-3. Dispatch Wave 3 plan when ready (no automation pending)
+1. Restart Claude Code sessions to pick up v0.5.0 dist (MCP server runs dist/index.js — alternation + varpath fail-loud now live).
+2. META follow-up: update global `codebase-memory-quality` skill's dead-code query from `NOT ()-[:CALLS]->(n)` to `NOT ()-[:CALLS|ASYNC_CALLS]->(n)`.
+3. Optional hardening: roadmap/follow-ups/2026-06-02-parameterize-edge-type-list-buildnotsexists.md (bind params vs inline SQL in buildNotExistsSql).
 
 ## Active work
-- Wave shipped: wave-2-type-aware-resolution.md (collapsed to stub; full history in git)
-- Open follow-ups: 5 · [follow-ups/](follow-ups/) — top item: launch-diff-skip-tsenrichment.md (single-dispatch fix); 2 verify-wave items blocked on meta M-48
-- Recent CI: Node 20+22 × ubuntu+windows matrix — CONFIRM green before proceeding
+- Open follow-ups: 4 — launch-diff-skip-tsenrichment, python-precision-tier, heuristic-http-edges-false-positive, verify-wave-pipeline-memory-reconcile. Plus 1 new: parameterize-edge-type-list.
+- Wave 3 shipped: edge-type alternation `[:CALLS|ASYNC_CALLS]` in negated-existence Cypher (fixes dead-code false-positive for async-only-called fns); varpath queries fail loud on NOT clauses; test fixtures now have required ParsedFileResult fields.
+- Full suite: 870 passed / 3 skipped. tsc clean. Build clean. Verify-wave-dead-export-engine-support resolved + archived.
 
 ## Reference index
+- Cypher engine: src/cypherEngineParser.ts (parseNegatedExistence), src/cypherEngineSqlHelpers.ts (buildNotExistsSql), src/cypherEngineVarpath.ts (fail-loud invariant)
 - Two-tier model: [decisions/two-tier-resolution-model.md](decisions/two-tier-resolution-model.md)
-- ts-morph gotchas: [.claude/vendor-gotchas/ts-morph.md](../.claude/vendor-gotchas/ts-morph.md)
-- Passes: src/passes/{typescriptEnrichmentPass,referencesPass}.ts · src/passes/CLAUDE.md
+- Vendor-gotchas: [.claude/vendor-gotchas/ts-morph.md](../.claude/vendor-gotchas/ts-morph.md)
 - Project conventions: [../CLAUDE.md](../CLAUDE.md)

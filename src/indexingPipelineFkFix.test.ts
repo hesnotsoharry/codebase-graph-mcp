@@ -119,6 +119,8 @@ function makeFile(
         startLine: r.startLine ?? 1,
       })),
       exportedNames: defs.map((d) => d.name),
+      hasParseError: false,
+      firstErrorLine: null,
     },
   };
 }
@@ -144,6 +146,8 @@ function makeFileWithCalls(
       calls,
       routes: [],
       exportedNames: defs.map((d) => d.name),
+      hasParseError: false,
+      firstErrorLine: null,
     },
   };
 }

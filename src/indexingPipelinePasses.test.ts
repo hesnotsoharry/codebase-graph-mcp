@@ -165,6 +165,8 @@ function makeHeritageFile(relativePath: string, defs: ExtractedDefinition[]): In
       calls: [],
       routes: [],
       exportedNames: defs.map((d) => d.name),
+      hasParseError: false,
+      firstErrorLine: null,
     },
   };
 }

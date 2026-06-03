@@ -91,6 +91,8 @@ function makeFileWithCall(opts: {
       ],
       routes: [],
       exportedNames: [],
+      hasParseError: false,
+      firstErrorLine: null,
     },
   };
 }
@@ -261,6 +263,8 @@ describe('(d) computed URL → heuristic fallback with confidence ≤ 0.5, not d
         ],
         routes: [],
         exportedNames: [],
+        hasParseError: false,
+        firstErrorLine: null,
       },
     };
 
@@ -425,6 +429,8 @@ describe('edge cases', () => {
         ],
         routes: [],
         exportedNames: [],
+        hasParseError: false,
+        firstErrorLine: null,
       },
     };
 
@@ -497,6 +503,8 @@ describe('every emitted HTTP_CALLS edge carries props.resolution_method', () => 
         ],
         routes: [],
         exportedNames: [],
+        hasParseError: false,
+        firstErrorLine: null,
       },
     };
 

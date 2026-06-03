@@ -57,6 +57,8 @@ function makeIndexedFile(relativePath: string, parsed = true): IndexedFile {
           calls: [],
           routes: [],
           exportedNames: [],
+          hasParseError: false,
+          firstErrorLine: null,
         }
       : null,
   };
@@ -243,6 +245,8 @@ describe('testDetectPass — TESTS edge emission (I/O contract)', () => {
         calls: [],
         routes: [],
         exportedNames: [],
+        hasParseError: false,
+        firstErrorLine: null,
       },
     };
 

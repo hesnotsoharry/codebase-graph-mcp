@@ -91,6 +91,8 @@ function makeFile(relativePath: string, defs: ExtractedDefinition[], calls: Extr
       calls,
       routes: [],
       exportedNames: defs.map((d) => d.name),
+      hasParseError: false,
+      firstErrorLine: null,
     },
   };
 }

@@ -337,6 +337,8 @@ describe('testDetectPass — kind Test definitions produce TESTS edges (integrat
         calls: [],
         routes: [],
         exportedNames: [],
+        hasParseError: false,
+        firstErrorLine: null,
       },
     };
 

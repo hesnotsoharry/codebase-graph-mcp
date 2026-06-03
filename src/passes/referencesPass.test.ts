@@ -69,6 +69,8 @@ function makeIndexedFile(absolutePath: string, relativePath: string, ext = 'ts')
       calls: [],
       routes: [],
       exportedNames: [],
+      hasParseError: false,
+      firstErrorLine: null,
     },
   };
 }

@@ -46,6 +46,8 @@ function makeIndexedFile(
       calls: [],
       routes: [],
       exportedNames: [],
+      hasParseError: false,
+      firstErrorLine: null,
     },
   };
 }

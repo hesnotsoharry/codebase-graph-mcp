@@ -23,6 +23,11 @@ export declare function pushWhereParam(params: unknown[], cond: ScalarWhereCondi
  * Build the NOT EXISTS subquery fragment for a negated existence condition.
  * Returns a SQL fragment like:
  *   NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type = 'CALLS')
+ *   NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type IN ('CALLS','ASYNC_CALLS'))
+ *
+ * Single-type: emits `type = 'X'` (byte-identical to the pre-Wave-3 output).
+ * Multi-type:  emits `type IN ('T1','T2',...)`.
+ * No type:     omits the type filter entirely.
  *
  * The fragment contains no bind parameters — the anchor id is referenced by column
  * name (e.g. `n.id`) so it stays correlated with the outer query row.

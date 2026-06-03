@@ -91,15 +91,29 @@ export function pushWhereParam(params, cond) {
  * Build the NOT EXISTS subquery fragment for a negated existence condition.
  * Returns a SQL fragment like:
  *   NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type = 'CALLS')
+ *   NOT EXISTS (SELECT 1 FROM edges WHERE target_id = n.id AND type IN ('CALLS','ASYNC_CALLS'))
+ *
+ * Single-type: emits `type = 'X'` (byte-identical to the pre-Wave-3 output).
+ * Multi-type:  emits `type IN ('T1','T2',...)`.
+ * No type:     omits the type filter entirely.
  *
  * The fragment contains no bind parameters — the anchor id is referenced by column
  * name (e.g. `n.id`) so it stays correlated with the outer query row.
  */
 export function buildNotExistsSql(cond) {
     const col = cond.anchorRole === 'target' ? 'target_id' : 'source_id';
-    const typeFilter = cond.edgeType
-        ? ` AND type = '${sanitizeIdentifier(cond.edgeType)}'`
-        : '';
+    let typeFilter = '';
+    if (cond.edgeTypes && cond.edgeTypes.length > 0) {
+        if (cond.edgeTypes.length === 1) {
+            // Preserve the pre-Wave-3 `type = 'X'` form for a single type.
+            typeFilter = ` AND type = '${sanitizeIdentifier(cond.edgeTypes[0])}'`;
+        }
+        else {
+            // Alternation: emit `type IN ('T1','T2',...)`.
+            const inList = cond.edgeTypes.map((t) => `'${sanitizeIdentifier(t)}'`).join(',');
+            typeFilter = ` AND type IN (${inList})`;
+        }
+    }
     return `NOT EXISTS (SELECT 1 FROM edges WHERE ${col} = ${sanitizeIdentifier(cond.anchorAlias)}.id${typeFilter})`;
 }
 /** Safety: check if a query contains write operations. */

@@ -235,67 +235,86 @@ function parseScalarCondition(condStr) {
  * Returns a NegatedExistenceCondition if the shape matches, null otherwise.
  *
  * Supported shapes (anchored at start, case-insensitive):
- *   NOT ()-[:TYPE]->(alias)        — anchor is the target
- *   NOT ()<-[:TYPE]-(alias)        — anchor is the source (inbound edge)
- *   NOT (alias)-[:TYPE]->()        — anchor is the source
- *   NOT (alias)<-[:TYPE]-()        — anchor is the target (inbound edge)
+ *   NOT ()-[:TYPE]->(alias)              — anchor is the target
+ *   NOT ()<-[:TYPE]-(alias)              — anchor is the source (inbound edge)
+ *   NOT (alias)-[:TYPE]->()              — anchor is the source
+ *   NOT (alias)<-[:TYPE]-()              — anchor is the target (inbound edge)
+ *   Alternation (Wave 3, negated-existence path only):
+ *   NOT ()-[:T1|T2|...]->(alias)         — anchor is the target, multi-type negation
  *   Without edge type:
- *   NOT ()-->(alias) / NOT (alias)-->()   not supported currently (edge type required)
+ *   NOT ()-->(alias) / NOT (alias)-->()  not supported currently (edge type required)
+ *
+ * Edge-type alternation `[:T1|T2|...]` is parsed into `edgeTypes: ['T1','T2',...]`.
+ * A bare single type (`:CALLS`) produces `edgeTypes: ['CALLS']` — semantically identical
+ * to the prior `edgeType: string | null` contract; SQL output is byte-identical.
  */
 function parseNegatedExistence(condStr) {
     const upper = condStr.trim().toUpperCase();
     if (!upper.startsWith('NOT '))
         return null;
     const body = condStr.trim().slice(4).trim();
-    // Pattern: NOT ()-[:TYPE]->(alias)  — anchor = target
+    /**
+     * Convert a raw edge-type capture group (e.g. "CALLS" or "CALLS|ASYNC_CALLS") into the
+     * normalized edgeTypes array, or null when no type was specified.
+     * The pipe character used for alternation is stripped inside each token by sanitizeIdentifier
+     * at SQL-emit time; here we only split on it.
+     */
+    function toEdgeTypes(raw) {
+        if (!raw)
+            return null;
+        // Split on | and drop any empty tokens produced by leading/trailing pipes
+        const types = raw.split('|').map((t) => t.trim()).filter(Boolean);
+        return types.length > 0 ? types : null;
+    }
+    // Pattern: NOT ()-[:TYPE|...]->(alias)  — anchor = target
     const notTargetOut = 
-    // eslint-disable-next-line security/detect-unsafe-regex -- bounded quantifiers
-    /^\(\s*\)\s*-\[\s*:?(\w+)?\s*\]\s*->\s*\(\s*(\w+)\s*\)$/.exec(body);
+    // eslint-disable-next-line security/detect-unsafe-regex -- [\w|]+ is bounded by the surrounding brackets; input capped by extractClause
+    /^\(\s*\)\s*-\[\s*:?([\w|]+)?\s*\]\s*->\s*\(\s*(\w+)\s*\)$/.exec(body);
     if (notTargetOut) {
         return {
             kind: 'negated_existence',
             anchorAlias: notTargetOut[2],
             anchorRole: 'target',
-            edgeType: notTargetOut[1] || null,
+            edgeTypes: toEdgeTypes(notTargetOut[1]),
             conjunction: null,
         };
     }
-    // Pattern: NOT (alias)-[:TYPE]->()  — anchor = source
+    // Pattern: NOT (alias)-[:TYPE|...]->()  — anchor = source
     const notSourceOut = 
-    // eslint-disable-next-line security/detect-unsafe-regex -- bounded quantifiers
-    /^\(\s*(\w+)\s*\)\s*-\[\s*:?(\w+)?\s*\]\s*->\s*\(\s*\)$/.exec(body);
+    // eslint-disable-next-line security/detect-unsafe-regex -- [\w|]+ is bounded by the surrounding brackets; input capped by extractClause
+    /^\(\s*(\w+)\s*\)\s*-\[\s*:?([\w|]+)?\s*\]\s*->\s*\(\s*\)$/.exec(body);
     if (notSourceOut) {
         return {
             kind: 'negated_existence',
             anchorAlias: notSourceOut[1],
             anchorRole: 'source',
-            edgeType: notSourceOut[2] || null,
+            edgeTypes: toEdgeTypes(notSourceOut[2]),
             conjunction: null,
         };
     }
-    // Pattern: NOT ()<-[:TYPE]-(alias)  — anchor = source
+    // Pattern: NOT ()<-[:TYPE|...]-(alias)  — anchor = source
     const notSourceIn = 
-    // eslint-disable-next-line security/detect-unsafe-regex -- bounded quantifiers
-    /^\(\s*\)\s*<-\[\s*:?(\w+)?\s*\]-\s*\(\s*(\w+)\s*\)$/.exec(body);
+    // eslint-disable-next-line security/detect-unsafe-regex -- [\w|]+ is bounded by the surrounding brackets; input capped by extractClause
+    /^\(\s*\)\s*<-\[\s*:?([\w|]+)?\s*\]-\s*\(\s*(\w+)\s*\)$/.exec(body);
     if (notSourceIn) {
         return {
             kind: 'negated_existence',
             anchorAlias: notSourceIn[2],
             anchorRole: 'source',
-            edgeType: notSourceIn[1] || null,
+            edgeTypes: toEdgeTypes(notSourceIn[1]),
             conjunction: null,
         };
     }
-    // Pattern: NOT (alias)<-[:TYPE]-()  — anchor = target
+    // Pattern: NOT (alias)<-[:TYPE|...]-()  — anchor = target
     const notTargetIn = 
-    // eslint-disable-next-line security/detect-unsafe-regex -- bounded quantifiers
-    /^\(\s*(\w+)\s*\)\s*<-\[\s*:?(\w+)?\s*\]-\s*\(\s*\)$/.exec(body);
+    // eslint-disable-next-line security/detect-unsafe-regex -- [\w|]+ is bounded by the surrounding brackets; input capped by extractClause
+    /^\(\s*(\w+)\s*\)\s*<-\[\s*:?([\w|]+)?\s*\]-\s*\(\s*\)$/.exec(body);
     if (notTargetIn) {
         return {
             kind: 'negated_existence',
             anchorAlias: notTargetIn[1],
             anchorRole: 'target',
-            edgeType: notTargetIn[2] || null,
+            edgeTypes: toEdgeTypes(notTargetIn[2]),
             conjunction: null,
         };
     }

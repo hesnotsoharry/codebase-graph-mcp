@@ -46,8 +46,12 @@ export interface NegatedExistenceCondition {
     anchorAlias: string;
     /** Whether the anchor is the source or target of the negated edge. */
     anchorRole: 'source' | 'target';
-    /** Edge type filter; null means any edge type. */
-    edgeType: string | null;
+    /**
+     * Edge type filter(s); null means any edge type.
+     * A single-element array is semantically identical to the previous `string | null`
+     * contract. Multiple elements express alternation: `[:T1|T2|...]`.
+     */
+    edgeTypes: string[] | null;
     conjunction: 'AND' | 'OR' | null;
 }
 export interface ScalarWhereCondition {

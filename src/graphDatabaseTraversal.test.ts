@@ -42,7 +42,7 @@ function seedBfs(db: GraphDatabase): void {
   });
   const fn = (id: string, name: string): {
     id: string; project: string; label: NodeLabel; name: string;
-    qualified_name: string; file_path: string; start_line: number; end_line: number; props: object;
+    qualified_name: string; file_path: string; start_line: number; end_line: number; props: Record<string, unknown>;
   } => ({
     id,
     project: BFS_PROJECT,
@@ -178,7 +178,7 @@ function seedBfsConfidence(db: GraphDatabase): void {
   });
   const fn = (id: string, name: string): {
     id: string; project: string; label: NodeLabel; name: string;
-    qualified_name: string; file_path: string; start_line: number; end_line: number; props: object;
+    qualified_name: string; file_path: string; start_line: number; end_line: number; props: Record<string, unknown>;
   } => ({
     id,
     project: BFS_CONF_PROJECT,

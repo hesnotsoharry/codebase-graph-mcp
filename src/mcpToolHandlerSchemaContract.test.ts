@@ -41,8 +41,10 @@ describe('MCP tool schema/handler contract — get_architecture', () => {
     const schema = getArch!.inputSchema as { properties?: Record<string, unknown> };
     expect(schema.properties, 'get_architecture inputSchema must declare properties').toBeDefined();
     // D2 locked decision: the dead `project` property was removed; only `aspects` is advertised.
-    expect(schema.properties).not.toHaveProperty('project');
-    expect(schema.properties).toHaveProperty('aspects');
+    // Exact-set assertion (mirrors the manage_adr pattern below): future property
+    // additions must be deliberate, not silent.
+    const advertisedProps = Object.keys(schema.properties!).sort();
+    expect(advertisedProps).toEqual(['aspects']);
   });
 });
 

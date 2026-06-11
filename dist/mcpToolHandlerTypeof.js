@@ -53,9 +53,10 @@ function queryTypeofEdges(ctx, symbolName, projectName) {
 }
 export async function handleFindTypeofReferences(ctx, args) {
     try {
-        const symbolName = args.symbol_name;
+        // `symbol` is the canonical param; accept legacy `symbol_name` as a silent alias.
+        const symbolName = (args.symbol ?? args.symbol_name);
         if (!symbolName)
-            return "Error: missing required parameter 'symbol_name'";
+            return "Error: missing required parameter 'symbol'";
         const projectName = args.project_name;
         const rows = queryTypeofEdges(ctx, symbolName, projectName);
         if (rows.length === 0) {

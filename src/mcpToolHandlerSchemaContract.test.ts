@@ -32,6 +32,20 @@ function buildContext(): GraphToolContext {
   } as GraphToolContext;
 }
 
+describe('MCP tool schema/handler contract — get_architecture', () => {
+  it('get_architecture schema advertises only [aspects] — project property removed (D2)', () => {
+    const context = buildContext();
+    const tools = createGraphMcpTools(context);
+    const getArch = tools.find((t) => t.name === 'get_architecture');
+    expect(getArch, 'get_architecture tool must be registered').toBeDefined();
+    const schema = getArch!.inputSchema as { properties?: Record<string, unknown> };
+    expect(schema.properties, 'get_architecture inputSchema must declare properties').toBeDefined();
+    // D2 locked decision: the dead `project` property was removed; only `aspects` is advertised.
+    expect(schema.properties).not.toHaveProperty('project');
+    expect(schema.properties).toHaveProperty('aspects');
+  });
+});
+
 describe('MCP tool schema/handler contract — manage_adr', () => {
   it('manage_adr schema.properties keys match handler-consumed args', () => {
     const context = buildContext();

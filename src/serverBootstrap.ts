@@ -11,9 +11,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod';
 
 import { CypherEngine } from './cypherEngine';
 import { GraphDatabase } from './graphDatabase';
@@ -329,40 +329,48 @@ export class LazyIndexGuard {
 // ── Tool registration ─────────────────────────────────────────────────────────
 
 /**
- * Passthrough Zod schema — accepts any object without validation.
- * Used because our tool defs carry raw JSON Schema (not Zod) and the MCP SDK's
- * registerTool API requires Zod. The handlers perform their own arg coercion;
- * validation at the schema layer is not needed for the standalone server.
- */
-const anyArgs = z.object({}).passthrough();
-
-/**
- * Registers all 14 graph tools from createGraphMcpTools() plus the existing
- * ping health-check tool on the provided McpServer instance.
+ * Registers all graph tools on the provided low-level Server instance using
+ * hand-rolled ListTools and CallTool request handlers.
+ *
+ * This replaces the former McpServer.registerTool() approach so that the
+ * hand-authored TOOL_SCHEMAS in mcpToolHandlers.ts are passed through verbatim
+ * in the tools/list response — the McpServer API discarded them in favour of
+ * empty Zod-derived schemas (M-60 D1).
  *
  * A shared LazyIndexGuard is created once and wraps every graph-requiring
- * tool call (all tools EXCEPT ping, index_repository, and index_status).
- * The guard blocks until the graph is populated before the tool handler runs.
+ * tool call (all tools EXCEPT the LAZY_INIT_BYPASS_TOOLS set).
  */
 export function registerGraphTools(
-  server: McpServer,
+  server: Server,
   context: GraphToolContext,
   rootPath: string,
 ): void {
   const guard = new LazyIndexGuard();
   const tools = createGraphMcpTools(context);
-  for (const def of tools) {
-    const { name, description, handler } = def;
-    server.registerTool(
-      name,
-      { description, inputSchema: anyArgs },
-      async (args: Record<string, unknown>) => {
-        console.error(`[trace:graph-mcp.tool.${name}] called`);
-        if (!LAZY_INIT_BYPASS_TOOLS.has(name)) {
-          await guard.checkAndIndex(context, rootPath);
-        }
-        return handler(args ?? {}, rootPath) as Promise<CallToolResult>;
-      },
-    );
-  }
+  const toolMap = new Map(tools.map((t) => [t.name, t]));
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: t.inputSchema,
+    })),
+  }));
+
+  server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    const { name } = req.params;
+    const args = (req.params.arguments ?? {}) as Record<string, unknown>;
+    const def = toolMap.get(name);
+    if (!def) {
+      return {
+        content: [{ type: 'text' as const, text: `Unknown tool: ${name}` }],
+        isError: true,
+      } satisfies CallToolResult;
+    }
+    console.error(`[trace:graph-mcp.tool.${name}] called`);
+    if (!LAZY_INIT_BYPASS_TOOLS.has(name)) {
+      await guard.checkAndIndex(context, rootPath);
+    }
+    return def.handler(args, rootPath) as Promise<CallToolResult>;
+  });
 }

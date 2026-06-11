@@ -108,9 +108,8 @@ const TOOL_SCHEMAS = {
         type: 'array',
         items: { type: 'string' },
         description:
-          'Which aspects: "languages","packages","entry_points","routes","hotspots","boundaries","services","layers","clusters","file_tree","adr","all". Default ["all"]. Pre-refactor: ["hotspots"].',
+          'Which aspects to return. Valid values: "languages", "packages", "entry_points", "routes", "hotspots", "boundaries", "services", "layers", "clusters", "file_tree", "adr", "all". Default ["all"]. For hotspot-only (most-connected functions): ["hotspots"].',
       },
-      project: { type: 'string' },
     },
     required: [],
   },
@@ -135,7 +134,7 @@ const TOOL_SCHEMAS = {
           'Symbol IDENTIFIER (PascalCase/camelCase). ✓ "ChatWorkbenchArtifactPane". ✗ "chat workbench artifact pane".',
       },
     },
-    required: [],
+    required: ['symbol'],
   },
   trace_call_path: {
     type: 'object',
@@ -159,7 +158,7 @@ const TOOL_SCHEMAS = {
           'Filter edges below this confidence (0.0–1.0). Default 0 (no filter). Import-resolved edges ~0.95; name-collision edges ~0.65.',
       },
     },
-    required: [],
+    required: ['symbol'],
   },
   detect_changes: {
     type: 'object',
@@ -221,7 +220,7 @@ const TOOL_SCHEMAS = {
   find_typeof_references: {
     type: 'object',
     properties: {
-      symbol_name: {
+      symbol: {
         type: 'string',
         description: 'Symbol IDENTIFIER to find typeof references to (e.g. "useConfig", "MyClass").',
       },
@@ -230,7 +229,7 @@ const TOOL_SCHEMAS = {
         description: 'Project name to scope the search. Defaults to the current workspace project.',
       },
     },
-    required: ['symbol_name'],
+    required: ['symbol'],
   },
   ping: {
     type: 'object',
@@ -270,7 +269,8 @@ function buildLifecycleTools(context: GraphToolContext): McpToolDefinition[] {
   return [
     {
       name: 'index_repository',
-      description: 'Index a repository into the codebase knowledge graph.',
+      description:
+        'Index a repository into the codebase knowledge graph. Pass repo_path (absolute path) to index a specific repo, or omit to index the current workspace.',
       inputSchema: TOOL_SCHEMAS.index_repository,
       handler: async (a: Record<string, unknown>) => wrapText(handleIndexRepository(a, context)),
     },
@@ -282,7 +282,8 @@ function buildLifecycleTools(context: GraphToolContext): McpToolDefinition[] {
     },
     {
       name: 'delete_project',
-      description: 'Remove a project and all its graph data. Irreversible.',
+      description:
+        'Remove a project and all its graph data. Irreversible. Pass project_name (the project identifier shown by list_projects).',
       inputSchema: TOOL_SCHEMAS.delete_project,
       handler: async (a: Record<string, unknown>) => wrapText(handleDeleteProject(a, context)),
     },
@@ -329,7 +330,7 @@ function buildSearchTools(context: GraphToolContext): McpToolDefinition[] {
     {
       name: 'get_architecture',
       description:
-        'Use when orienting in unfamiliar code or before a refactor. Returns hotspots (most-connected functions), module structure, and file-tree overview. Cheaper than reading multiple files; tells you where a change has the widest impact.',
+        'Use when orienting in unfamiliar code or before a refactor. Returns hotspots (most-connected functions), module structure, and file-tree overview. Cheaper than reading multiple files; tells you where a change has the widest impact. Pass aspects to narrow output: ["hotspots"] for call-graph top nodes; ["languages","packages"] for structure; ["all"] (default) for everything.',
       inputSchema: TOOL_SCHEMAS.get_architecture,
       handler: async (a: Record<string, unknown>) =>
         safeStructured('Error getting architecture', handleGetArchitecture(a, context)),
@@ -365,7 +366,7 @@ function buildTraceAndChangeTools(context: GraphToolContext): McpToolDefinition[
     {
       name: 'detect_changes',
       description:
-        'Pre-refactor impact analysis. Maps git changes to affected symbols; computes blast radius of what will break.',
+        'Pre-refactor impact analysis. Maps git changes to affected symbols; computes blast radius of what will break. scope="branch" requires base_branch (e.g. "main"). Other scopes: "unstaged", "staged", "all" (default).',
       inputSchema: TOOL_SCHEMAS.detect_changes,
       handler: async (a: Record<string, unknown>) =>
         safeStructured('Error detecting changes', handleDetectChanges(a, queryEngine)),
@@ -387,7 +388,7 @@ function buildCypherAndAdrTools(context: GraphToolContext): McpToolDefinition[] 
     {
       name: 'manage_adr',
       description:
-        'Manage Architecture Decision Records (ADR). Modes: list, get, store, update, delete.',
+        "Manage Architecture Decision Records (ADR). Modes: list, get, store, update, delete. mode='store' requires content. mode='update' requires sections (object with valid keys: PURPOSE, STACK, ARCHITECTURE, PATTERNS, TRADEOFFS, PHILOSOPHY).",
       inputSchema: TOOL_SCHEMAS.manage_adr,
       handler: async (a: Record<string, unknown>) =>
         safeText('Error managing ADR', handleManageAdr(a, context)),

@@ -4,7 +4,7 @@
  *
  * Separated from index.ts so each unit stays under the max-lines: 300 cap.
  */
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { GraphToolContext } from './graphTypes';
 /**
  * Rate-limit window for the staleness check (ms). After a successful check
@@ -69,12 +69,16 @@ export declare class LazyIndexGuard {
     checkAndIndex(context: GraphToolContext, rootPath: string): Promise<void>;
 }
 /**
- * Registers all 14 graph tools from createGraphMcpTools() plus the existing
- * ping health-check tool on the provided McpServer instance.
+ * Registers all graph tools on the provided low-level Server instance using
+ * hand-rolled ListTools and CallTool request handlers.
+ *
+ * This replaces the former McpServer.registerTool() approach so that the
+ * hand-authored TOOL_SCHEMAS in mcpToolHandlers.ts are passed through verbatim
+ * in the tools/list response — the McpServer API discarded them in favour of
+ * empty Zod-derived schemas (M-60 D1).
  *
  * A shared LazyIndexGuard is created once and wraps every graph-requiring
- * tool call (all tools EXCEPT ping, index_repository, and index_status).
- * The guard blocks until the graph is populated before the tool handler runs.
+ * tool call (all tools EXCEPT the LAZY_INIT_BYPASS_TOOLS set).
  */
-export declare function registerGraphTools(server: McpServer, context: GraphToolContext, rootPath: string): void;
+export declare function registerGraphTools(server: Server, context: GraphToolContext, rootPath: string): void;
 //# sourceMappingURL=serverBootstrap.d.ts.map

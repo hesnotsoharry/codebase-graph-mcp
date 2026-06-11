@@ -8,6 +8,7 @@ import { textResult } from './types';
 import type { CypherEngine } from './cypherEngine';
 import type { GraphToolContext } from './graphTypes';
 import { hasOnlyQuery, runFilteredSearch, runRankedSearch } from './mcpToolHandlerSearch';
+import { assertString } from './mcpToolHandlerValidation';
 import type { QueryEngine } from './queryEngine';
 
 // ─── Shared output helper ─────────────────────────────────────────────────────
@@ -340,9 +341,11 @@ export async function handleQueryGraph(
   args: Record<string, unknown>,
   cypherEngine: CypherEngine,
 ): Promise<McpToolResult> {
+  const queryResult = assertString(args, 'query');
+  if (!queryResult.ok) return textResult(queryResult.error, { isError: true });
   const limit = typeof args.limit === 'number' && args.limit > 0 ? args.limit : undefined;
   const offset = typeof args.offset === 'number' && args.offset >= 0 ? args.offset : undefined;
-  const result = cypherEngine.execute(args.query as string, { limit, offset });
+  const result = cypherEngine.execute(queryResult.value, { limit, offset });
   return textResult(formatQueryResultText(result), {
     structuredContent: {
       columns: result.columns,

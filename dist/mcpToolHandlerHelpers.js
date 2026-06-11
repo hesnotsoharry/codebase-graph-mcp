@@ -4,6 +4,7 @@
  */
 import { textResult } from './types.js';
 import { hasOnlyQuery, runFilteredSearch, runRankedSearch } from './mcpToolHandlerSearch.js';
+import { assertString } from './mcpToolHandlerValidation.js';
 // ─── Shared output helper ─────────────────────────────────────────────────────
 const MAX_OUTPUT_CHARS = 8000;
 export function truncate(text) {
@@ -252,9 +253,12 @@ function formatQueryResultText(result) {
     return truncate(lines.join('\n'));
 }
 export async function handleQueryGraph(args, cypherEngine) {
+    const queryResult = assertString(args, 'query');
+    if (!queryResult.ok)
+        return textResult(queryResult.error, { isError: true });
     const limit = typeof args.limit === 'number' && args.limit > 0 ? args.limit : undefined;
     const offset = typeof args.offset === 'number' && args.offset >= 0 ? args.offset : undefined;
-    const result = cypherEngine.execute(args.query, { limit, offset });
+    const result = cypherEngine.execute(queryResult.value, { limit, offset });
     return textResult(formatQueryResultText(result), {
         structuredContent: {
             columns: result.columns,

@@ -10,6 +10,7 @@ import path from 'path';
 import type { EdgeType } from './graphDatabaseTypes';
 import { truncate } from './mcpToolHandlerHelpers';
 import type { GraphToolContext } from './mcpToolHandlers';
+import { assertString } from './mcpToolHandlerValidation';
 
 // Wave 70 Phase B1+B2 — `handleIndexStatus` and `handleGetArchitecture` were
 // moved to `mcpToolHandlerStructured.ts` (envelope-returning handlers with
@@ -24,9 +25,15 @@ export async function handleIndexRepository(
   ctx: GraphToolContext,
 ): Promise<string> {
   try {
-    const repoPath = (args.repo_path as string) ?? ctx.projectRoot;
+    const hasArgs = Object.keys(args).length > 0;
+    const repoPath = args.repo_path as string | undefined;
+    if (hasArgs && !repoPath) {
+      const keys = Object.keys(args).join(', ');
+      return `Error: index_repository takes repo_path (absolute path; omit to index the current workspace) — got: ${keys}`;
+    }
+    const rootPath = repoPath ?? ctx.projectRoot;
     const result = await ctx.pipeline.index({
-      projectRoot: repoPath,
+      projectRoot: rootPath,
       incremental: true,
       onProgress: () => {},
     });
@@ -76,7 +83,9 @@ export async function handleDeleteProject(
   ctx: GraphToolContext,
 ): Promise<string> {
   try {
-    const name = args.project_name as string;
+    const nameResult = assertString(args, 'project_name');
+    if (!nameResult.ok) return nameResult.error;
+    const name = nameResult.value;
     if (!ctx.db.getProject(name)) return `Project "${name}" not found.`;
     ctx.db.deleteProject(name);
     return `Deleted project "${name}" and all its graph data.`;

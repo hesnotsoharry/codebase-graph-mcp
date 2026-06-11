@@ -147,6 +147,37 @@ If you have an existing `~/.ouroboros-graph/` directory from v0.1.0, the server 
 
 After the initial index, the server watches for file changes via `@parcel/watcher` and triggers incremental reindex automatically. You only need to call `index_repository` explicitly for the first index or after a major structural change (e.g., a large branch merge).
 
+## CLI: --reindex-if-stale
+
+The server exposes a non-MCP CLI mode for hook-driven background indexing:
+
+```bash
+node dist/index.js --reindex-if-stale <rootPath>
+```
+
+**Behaviour:**
+- Resolves the graph DB for `<rootPath>` (same hash as the running server would use).
+- Checks staleness: runs an incremental index if the project has no record, or if the repository's last-change timestamp (from `git log -1 --format=%ct`; falls back to max file mtime) is newer than `indexed_at`.
+- If fresh: exits 0 silently.
+- Every failure path: logs one line to stderr and exits 0 — safe to spawn fire-and-forget from a `SessionStart` hook without blocking the session.
+- **Never starts the MCP transport** — this mode is exit-only.
+
+Typical invocation from a Claude Code `SessionStart` hook:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{
+      "matcher": "",
+      "hooks": [{
+        "type": "command",
+        "command": "node /path/to/dist/index.js --reindex-if-stale ${cwd}"
+      }]
+    }]
+  }
+}
+```
+
 ## Troubleshooting
 
 ### `✗ Failed to connect` on Windows

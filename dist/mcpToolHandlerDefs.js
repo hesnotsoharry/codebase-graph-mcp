@@ -6,6 +6,7 @@ import { xxh3 } from '@node-rs/xxhash';
 import fs from 'fs';
 import path from 'path';
 import { truncate } from './mcpToolHandlerHelpers.js';
+import { assertString } from './mcpToolHandlerValidation.js';
 // Wave 70 Phase B1+B2 — `handleIndexStatus` and `handleGetArchitecture` were
 // moved to `mcpToolHandlerStructured.ts` (envelope-returning handlers with
 // `structuredContent`). Re-export them here for back-compat with existing
@@ -14,9 +15,15 @@ export { handleGetArchitecture, handleIndexStatus } from './mcpToolHandlerStruct
 // ─── index_repository handler ─────────────────────────────────────────────────
 export async function handleIndexRepository(args, ctx) {
     try {
-        const repoPath = args.repo_path ?? ctx.projectRoot;
+        const hasArgs = Object.keys(args).length > 0;
+        const repoPath = args.repo_path;
+        if (hasArgs && !repoPath) {
+            const keys = Object.keys(args).join(', ');
+            return `Error: index_repository takes repo_path (absolute path; omit to index the current workspace) — got: ${keys}`;
+        }
+        const rootPath = repoPath ?? ctx.projectRoot;
         const result = await ctx.pipeline.index({
-            projectRoot: repoPath,
+            projectRoot: rootPath,
             incremental: true,
             onProgress: () => { },
         });
@@ -61,7 +68,10 @@ export async function handleListProjects(ctx) {
 // ─── delete_project handler ───────────────────────────────────────────────────
 export async function handleDeleteProject(args, ctx) {
     try {
-        const name = args.project_name;
+        const nameResult = assertString(args, 'project_name');
+        if (!nameResult.ok)
+            return nameResult.error;
+        const name = nameResult.value;
         if (!ctx.db.getProject(name))
             return `Project "${name}" not found.`;
         ctx.db.deleteProject(name);
